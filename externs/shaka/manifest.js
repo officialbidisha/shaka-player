@@ -20,7 +20,8 @@
  *   minBufferTime: number,
  *   sequenceMode: boolean,
  *   ignoreManifestTimestampsInSegmentsMode: boolean,
- *   type: string
+ *   type: string,
+ *   serviceDescription: ?shaka.extern.ServiceDescription
  * }}
  *
  * @description
@@ -89,6 +90,9 @@
  * @property {string} type
  *   Indicates the type of the manifest. It can be <code>'HLS'</code> or
  *   <code>'DASH'</code>.
+ * @property {?shaka.extern.ServiceDescription} serviceDescription
+ *   The service description for the manifest. Used to adapt playbackRate to
+ *   decrease latency.
  *
  * @exportDoc
  */
@@ -117,6 +121,26 @@ shaka.extern.Manifest;
  * @exportDoc
  */
 shaka.extern.InitDataOverride;
+
+/**
+ * @typedef {{
+ *   maxLatency: ?number,
+ *   maxPlaybackRate: ?number
+ * }}
+ *
+ * @description
+ * Maximum latency and playback rate for a manifest. When max latency is reached
+ * playbackrate is updated to maxPlaybackRate to decrease latency.
+ * More information {@link https://dashif.org/docs/CR-Low-Latency-Live-r8.pdf here}.
+ *
+ * @property {?number} maxLatency
+ *  Maximum latency in seconds.
+ * @property {?number} maxPlaybackRate
+ *  Maximum playback rate.
+ *
+ * @exportDoc
+ */
+shaka.extern.ServiceDescription;
 
 
 /**
@@ -320,6 +344,7 @@ shaka.extern.FetchCryptoKeysFunction;
  *   drmInfos: !Array.<shaka.extern.DrmInfo>,
  *   keyIds: !Set.<string>,
  *   language: string,
+ *   originalLanguage: ?string,
  *   label: ?string,
  *   type: string,
  *   primary: boolean,
@@ -405,6 +430,9 @@ shaka.extern.FetchCryptoKeysFunction;
  *   The Stream's language, specified as a language code. <br>
  *   Audio stream's language must be identical to the language of the containing
  *   Variant.
+ * @property {?string} originalLanguage
+ *   <i>Optional.</i> <br>
+ *   The original language, if any, that appeared in the manifest.
  * @property {?string} label
  *   The Stream's label, unique text that should describe the audio/text track.
  * @property {string} type
