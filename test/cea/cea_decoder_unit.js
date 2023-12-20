@@ -65,6 +65,9 @@ describe('CeaDecoder', () => {
 
       const topLevelCue = new shaka.text.Cue(
           startTimeCaption1, startTimeCaption2, '');
+      topLevelCue.line = 74;
+      topLevelCue.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue.nestedCues = [
         CeaUtils.createStyledCue(
             startTimeCaption1, startTimeCaption2, expectedText,
@@ -110,6 +113,9 @@ describe('CeaDecoder', () => {
       // Since there are three style changes, there should be three nested cues.
       const topLevelCue = new shaka.text.Cue(
           startTimeCaption1, startTimeCaption2, '');
+      topLevelCue.line = 10;
+      topLevelCue.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
 
       topLevelCue.nestedCues = [
         CeaUtils.createDefaultCue(
@@ -160,6 +166,9 @@ describe('CeaDecoder', () => {
       // A single nested cue containing yellow, italicized text.
       const topLevelCue = new shaka.text.Cue(startTimeCaption1,
           startTimeCaption2, '');
+      topLevelCue.line = 15.33;
+      topLevelCue.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue.nestedCues = [
         CeaUtils.createStyledCue(
             startTimeCaption1, startTimeCaption2, expectedText,
@@ -199,6 +208,9 @@ describe('CeaDecoder', () => {
 
       const topLevelCue = new shaka.text.Cue(startTimeCaption1,
           startTimeCaption2, '');
+      topLevelCue.line = 10;
+      topLevelCue.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue.nestedCues = [
         CeaUtils.createDefaultCue(
             startTimeCaption1, startTimeCaption2, expectedText),
@@ -231,6 +243,9 @@ describe('CeaDecoder', () => {
 
       const topLevelCue = new shaka.text.Cue(startTimeCaption1,
           startTimeCaption2, '');
+      topLevelCue.line = 10;
+      topLevelCue.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue.nestedCues = [
         CeaUtils.createDefaultCue(
             startTimeCaption1, startTimeCaption2, expectedText),
@@ -300,6 +315,9 @@ describe('CeaDecoder', () => {
       // Top level cue corresponding to the first closed caption.
       const topLevelCue1 = new shaka.text.Cue(
           /* startTime= */ time1, /* endTime= */ time2, '');
+      topLevelCue1.line = 84.66;
+      topLevelCue1.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue1.nestedCues = [
         CeaUtils.createDefaultCue(
             /* startTime= */ time1, /* endTime= */ time2, /* payload= */ '1.'),
@@ -308,6 +326,9 @@ describe('CeaDecoder', () => {
       // Top level cue corresponding to the second closed caption.
       const topLevelCue2 = new shaka.text.Cue(
           /* startTime= */ time2, /* endTime= */ time3, '');
+      topLevelCue2.line = 84.66;
+      topLevelCue2.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue2.nestedCues = [
         CeaUtils.createDefaultCue(
             /* startTime= */ time2, /* endTime= */ time3, /* payload= */ '1.'),
@@ -322,6 +343,9 @@ describe('CeaDecoder', () => {
       // Top level cue corresponding to the third closed caption.
       const topLevelCue3 = new shaka.text.Cue(
           /* startTime= */ time3, /* endTime= */ time4, '');
+      topLevelCue3.line = 84.66;
+      topLevelCue3.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue3.nestedCues = [
         CeaUtils.createDefaultCue(
             /* startTime= */ time3, /* endTime= */ time4, /* payload= */ '2.'),
@@ -336,6 +360,9 @@ describe('CeaDecoder', () => {
       // Top level cue corresponding to the fourth closed caption.
       const topLevelCue4 = new shaka.text.Cue(
           /* startTime= */ time4, /* endTime= */ time5, '');
+      topLevelCue4.line = 84.66;
+      topLevelCue4.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue4.nestedCues = [
         CeaUtils.createDefaultCue(
             /* startTime= */ time4, /* endTime= */ time5, /* payload= */ '3.'),
@@ -406,6 +433,9 @@ describe('CeaDecoder', () => {
       // Top level cue corresponding to the first closed caption.
       const topLevelCue1 = new shaka.text.Cue(/* startTime= */ 1,
           /* endTime= */ 2, '');
+      topLevelCue1.line = 84.66;
+      topLevelCue1.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue1.nestedCues = [
         CeaUtils.createDefaultCue(
             /* startTime= */ 1, /* endTime= */ 2, /* payload= */ '1.'),
@@ -414,6 +444,9 @@ describe('CeaDecoder', () => {
       // Top level cue corresponding to the second closed caption.
       const topLevelCue2 = new shaka.text.Cue(/* startTime= */ 2,
           /* endTime= */ 3, '');
+      topLevelCue2.line = 26;
+      topLevelCue2.lineInterpretation =
+          shaka.text.Cue.lineInterpretation.PERCENTAGE;
       topLevelCue2.nestedCues = [
         CeaUtils.createDefaultCue(
             /* startTime= */ 2, /* endTime= */ 3, /* payload= */ '1.'),
@@ -486,6 +519,13 @@ describe('CeaDecoder', () => {
 
       expect(decoder.reset).toHaveBeenCalledTimes(1);
     });
+
+    it('does not attempt to extract SEI packet that is too short', () => {
+      const badData = new Uint8Array([0xb5]);
+      decoder.extract(badData, 0);
+      const captions = decoder.decode();
+      expect(captions.length).toBe(0);
+    });
   });
 
   describe('decodes CEA-708', () => {
@@ -525,7 +565,8 @@ describe('CeaDecoder', () => {
       decoder.extract(hideWindow, endTime);
 
       const text = 'test';
-      const topLevelCue = new shaka.text.Cue(startTime, endTime, '');
+      const topLevelCue = CeaUtils.createWindowedCue(startTime, endTime, '',
+          serviceNumber, 0, 11, 11);
       topLevelCue.nestedCues = [
         CeaUtils.createDefaultCue(startTime, endTime, /* payload= */ text),
       ];

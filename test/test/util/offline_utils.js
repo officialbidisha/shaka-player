@@ -33,6 +33,7 @@ shaka.test.OfflineUtils = class {
     return {
       id,
       originalId: id.toString(),
+      groupId: null,
       primary: false,
       presentationTimeOffset: 0,
       type,
@@ -57,6 +58,8 @@ shaka.test.OfflineUtils = class {
       audioSamplingRate: null,
       spatialAudio: false,
       closedCaptions: null,
+      external: false,
+      fastSwitching: false,
     };
   }
 

@@ -101,6 +101,33 @@ shaka.extern.Manifest;
 
 /**
  * @typedef {{
+*   id: string,
+*   audioStreams: !Array.<shaka.extern.Stream>,
+*   videoStreams: !Array.<shaka.extern.Stream>,
+*   textStreams: !Array.<shaka.extern.Stream>,
+*   imageStreams: !Array.<shaka.extern.Stream>
+* }}
+*
+* @description Contains the streams from one DASH period.
+* For use in {@link shaka.util.PeriodCombiner}.
+*
+* @property {string} id
+*   The Period ID.
+* @property {!Array.<shaka.extern.Stream>} audioStreams
+*   The audio streams from one Period.
+* @property {!Array.<shaka.extern.Stream>} videoStreams
+*   The video streams from one Period.
+* @property {!Array.<shaka.extern.Stream>} textStreams
+*   The text streams from one Period.
+* @property {!Array.<shaka.extern.Stream>} imageStreams
+*   The image streams from one Period.
+*
+* @exportDoc
+*/
+shaka.extern.Period;
+
+/**
+ * @typedef {{
  *   initData: !Uint8Array,
  *   initDataType: string,
  *   keyId: ?string
@@ -125,18 +152,26 @@ shaka.extern.InitDataOverride;
 /**
  * @typedef {{
  *   maxLatency: ?number,
- *   maxPlaybackRate: ?number
+ *   maxPlaybackRate: ?number,
+ *   minLatency: ?number,
+ *   minPlaybackRate: ?number
  * }}
  *
  * @description
- * Maximum latency and playback rate for a manifest. When max latency is reached
- * playbackrate is updated to maxPlaybackRate to decrease latency.
+ * Maximum and minimum latency and playback rate for a manifest. When max
+ * latency is reached playbackrate is updated to maxPlaybackRate to decrease
+ * latency. When min  latency is reached playbackrate is updated to
+ * minPlaybackRate to increase  latency.
  * More information {@link https://dashif.org/docs/CR-Low-Latency-Live-r8.pdf here}.
  *
  * @property {?number} maxLatency
  *  Maximum latency in seconds.
  * @property {?number} maxPlaybackRate
  *  Maximum playback rate.
+ * @property {?number} minLatency
+ *  Minimum latency in seconds.
+ * @property {?number} minPlaybackRate
+ *  Minimum playback rate.
  *
  * @exportDoc
  */
@@ -283,7 +318,8 @@ shaka.extern.CreateSegmentIndexFunction;
 
 /**
  * @typedef {{
- *   method: string,
+ *   bitsKey: number,
+ *   blockCipherMode: string,
  *   cryptoKey: (webCrypto.CryptoKey|undefined),
  *   fetchKey: (shaka.extern.CreateSegmentIndexFunction|undefined),
  *   iv: (!Uint8Array|undefined),
@@ -291,27 +327,29 @@ shaka.extern.CreateSegmentIndexFunction;
  * }}
  *
  * @description
- * AES-128 key and iv info from the HLS manifest.
+ * AES key and iv info from the manifest.
  *
- * @property {string} method
- *   The key method defined in the HLS manifest.
+ * @property {number} bitsKey
+ *   The number of the bit key (eg: 128, 256).
+ * @property {string} blockCipherMode
+ *   The block cipher mode of operation. Possible values: 'CTR' or 'CBC'.
  * @property {webCrypto.CryptoKey|undefined} cryptoKey
- *   Web crypto key object of the AES-128 CBC key. If unset, the "fetchKey"
+ *   Web crypto key object of the AES key. If unset, the "fetchKey"
  *   property should be provided.
  * @property {shaka.extern.FetchCryptoKeysFunction|undefined} fetchKey
  *   A function that fetches the key.
  *   Should be provided if the "cryptoKey" property is unset.
  *   Should update this object in-place, to set "cryptoKey".
  * @property {(!Uint8Array|undefined)} iv
- *   The IV in the HLS manifest, if defined. See HLS RFC 8216 Section 5.2 for
- *   handling undefined IV.
+ *   The IV in the manifest, if defined. For HLS see HLS RFC 8216 Section 5.2
+ *   for handling undefined IV.
  * @property {number} firstMediaSequenceNumber
  *   The starting Media Sequence Number of the playlist, used when IV is
  *   undefined.
  *
  * @exportDoc
  */
-shaka.extern.HlsAes128Key;
+shaka.extern.aesKey;
 
 
 /**
@@ -328,6 +366,7 @@ shaka.extern.FetchCryptoKeysFunction;
  * @typedef {{
  *   id: number,
  *   originalId: ?string,
+ *   groupId: ?string,
  *   createSegmentIndex: shaka.extern.CreateSegmentIndexFunction,
  *   closeSegmentIndex: (function()|undefined),
  *   segmentIndex: shaka.media.SegmentIndex,
@@ -336,6 +375,7 @@ shaka.extern.FetchCryptoKeysFunction;
  *   frameRate: (number|undefined),
  *   pixelAspectRatio: (string|undefined),
  *   hdr: (string|undefined),
+ *   videoLayout: (string|undefined),
  *   bandwidth: (number|undefined),
  *   width: (number|undefined),
  *   height: (number|undefined),
@@ -361,7 +401,9 @@ shaka.extern.FetchCryptoKeysFunction;
  *   matchedStreams:
  *      (!Array.<shaka.extern.Stream>|!Array.<shaka.extern.StreamDB>|
  *      undefined),
- *   mssPrivateData: (shaka.extern.MssPrivateData|undefined)
+ *   mssPrivateData: (shaka.extern.MssPrivateData|undefined),
+ *   external: boolean,
+ *   fastSwitching: boolean
  * }}
  *
  * @description
@@ -375,6 +417,10 @@ shaka.extern.FetchCryptoKeysFunction;
  *   The original ID, if any, that appeared in the manifest.  For example, in
  *   DASH, this is the "id" attribute of the Representation element.  In HLS,
  *   this is the "NAME" attribute.
+ * @property {?string} groupId
+ *   <i>Optional.</i> <br>
+ *   The ID of the stream's parent element. In DASH, this will be a unique
+ *   ID that represents the representation's parent adaptation element
  * @property {shaka.extern.CreateSegmentIndexFunction} createSegmentIndex
  *   <i>Required.</i> <br>
  *   Creates the Stream's segmentIndex (asynchronously).
@@ -401,6 +447,9 @@ shaka.extern.FetchCryptoKeysFunction;
  * @property {(string|undefined)} hdr
  *   <i>Video streams only.</i> <br>
  *   The Stream's HDR info
+ * @property {(string|undefined)} videoLayout
+ *   <i>Video streams only.</i> <br>
+ *   The Stream's video layout info.
  * @property {(number|undefined)} bandwidth
  *   <i>Audio and video streams only.</i> <br>
  *   The stream's required bandwidth in bits per second.
@@ -470,7 +519,8 @@ shaka.extern.FetchCryptoKeysFunction;
  *   A map containing the description of closed captions, with the caption
  *   channel number (CC1 | CC2 | CC3 | CC4) as the key and the language code
  *   as the value. If the channel number is not provided by the description,
- *   we'll set an 0-based index as the key.
+ *   we'll set a 0-based index as the key. If the language code is not
+ *   provided by the description we'll set the same value as channel number.
  *   Example: {'CC1': 'eng'; 'CC3': 'swe'}, or {'1', 'eng'; '2': 'swe'}, etc.
  * @property {(string|undefined)} tilesLayout
  *   <i>Image streams only.</i> <br>
@@ -483,6 +533,11 @@ shaka.extern.FetchCryptoKeysFunction;
  * @property {(shaka.extern.MssPrivateData|undefined)} mssPrivateData
  *   <i>Microsoft Smooth Streaming only.</i> <br>
  *   Private MSS data that is necessary to be able to do transmuxing.
+ * @property {boolean} external
+ *   Indicate if the stream was added externally.
+ *   Eg: external text tracks.
+ * @property {boolean} fastSwitching
+ *   Indicate if the stream should be used for fast switching.
  *
  * @exportDoc
  */

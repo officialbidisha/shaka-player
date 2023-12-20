@@ -717,6 +717,8 @@ describe('DrmEngine', () => {
     it('maps TS MIME types through the transmuxer', async () => {
       const originalIsSupported =
           shaka.transmuxer.TransmuxerEngine.isSupported;
+      const originalConvertCodecs =
+          shaka.transmuxer.TransmuxerEngine.convertCodecs;
 
       try {
         // Mock out isSupported on Transmuxer so that we don't have to care
@@ -725,6 +727,14 @@ describe('DrmEngine', () => {
         shaka.transmuxer.TransmuxerEngine.isSupported =
             (mimeType, contentType) => {
               return mimeType.startsWith('video/mp2t');
+            };
+        shaka.transmuxer.TransmuxerEngine.convertCodecs =
+            (contentType, mimeType) => {
+              let newMimeType = mimeType.replace('mp2t', 'mp4');
+              if (contentType == 'audio') {
+                newMimeType = newMimeType.replace('video', 'audio');
+              }
+              return newMimeType;
             };
 
         // The default mock for this is so unrealistic, some of our test
@@ -763,6 +773,8 @@ describe('DrmEngine', () => {
       } finally {
         // Restore the mock.
         shaka.transmuxer.TransmuxerEngine.isSupported = originalIsSupported;
+        shaka.transmuxer.TransmuxerEngine.convertCodecs =
+            originalConvertCodecs;
       }
     });
   });  // describe('init')
@@ -2301,7 +2313,7 @@ describe('DrmEngine', () => {
         videoRobustness: 'really_really_ridiculously_good',
         serverCertificate: serverCert,
         serverCertificateUri: '',
-        initData: ['blah'],
+        initData: [{keyId: 'a'}],
         keyIds: new Set(['deadbeefdeadbeefdeadbeefdeadbeef']),
       };
       const drmInfoAudio = {
@@ -2312,7 +2324,7 @@ describe('DrmEngine', () => {
         audioRobustness: 'good',
         serverCertificate: undefined,
         serverCertificateUri: '',
-        initData: ['init data'],
+        initData: [{keyId: 'b'}],
         keyIds: new Set(['eadbeefdeadbeefdeadbeefdeadbeefd']),
       };
       const drmInfoDesired = {
@@ -2324,7 +2336,7 @@ describe('DrmEngine', () => {
         videoRobustness: 'really_really_ridiculously_good',
         serverCertificate: serverCert,
         serverCertificateUri: '',
-        initData: ['blah', 'init data'],
+        initData: [{keyId: 'a'}, {keyId: 'b'}],
         keyIds: new Set([
           'deadbeefdeadbeefdeadbeefdeadbeef',
           'eadbeefdeadbeefdeadbeefdeadbeefd',
@@ -2377,6 +2389,33 @@ describe('DrmEngine', () => {
       const returned = shaka.media.DrmEngine.getCommonDrmInfos([drmInfoVideo],
           [drmInfoAudio]);
       expect(returned).toEqual([drmInfoDesired]);
+    });
+
+    it('does not match incompatible drmInfos', () => {
+      // Different key systems do not match.
+      const drmInfo1 = {
+        keySystem: 'drm.abc',
+        licenseServerUri: undefined,
+        distinctiveIdentifierRequired: false,
+        persistentStateRequired: false,
+        serverCertificate: undefined,
+        serverCertificateUri: '',
+        initData: [],
+        keyIds: new Set(),
+      };
+      const drmInfo2 = {
+        keySystem: 'drm.foobar',
+        licenseServerUri: undefined,
+        distinctiveIdentifierRequired: false,
+        persistentStateRequired: false,
+        serverCertificate: undefined,
+        serverCertificateUri: '',
+        initData: [],
+        keyIds: new Set(),
+      };
+      const returned1 = shaka.media.DrmEngine.getCommonDrmInfos(
+          [drmInfo1], [drmInfo2]);
+      expect(returned1).toEqual([]);
     });
   }); // describe('getCommonDrmInfos')
 

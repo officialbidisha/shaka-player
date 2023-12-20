@@ -220,6 +220,9 @@ describe('AdaptationSet', () => {
       trickModeVideo: null,
       type: '',
       accessibilityPurpose: null,
+      external: false,
+      groupId: null,
+      fastSwitching: false,
     };
   }
 });

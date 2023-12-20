@@ -16,6 +16,8 @@ goog.require('shaka.ui.AdCounter');
 goog.require('shaka.ui.AdPosition');
 goog.require('shaka.ui.BigPlayButton');
 goog.require('shaka.ui.ContextMenu');
+goog.require('shaka.ui.HiddenFastForwardButton');
+goog.require('shaka.ui.HiddenRewindButton');
 goog.require('shaka.ui.Locales');
 goog.require('shaka.ui.Localization');
 goog.require('shaka.ui.SeekBar');
@@ -643,6 +645,132 @@ shaka.ui.Controls = class extends shaka.util.FakeEventTarget {
     }
   }
 
+  /**
+   * @return {boolean}
+   * @export
+   */
+  isPiPAllowed() {
+    if ('documentPictureInPicture' in window &&
+        this.config_.preferDocumentPictureInPicture) {
+      const video = /** @type {HTMLVideoElement} */(this.localVideo_);
+      return !video.disablePictureInPicture;
+    }
+    if (document.pictureInPictureEnabled) {
+      const video = /** @type {HTMLVideoElement} */(this.localVideo_);
+      return !video.disablePictureInPicture;
+    }
+    return false;
+  }
+
+  /**
+   * @return {boolean}
+   * @export
+   */
+  isPiPEnabled() {
+    if ('documentPictureInPicture' in window &&
+        this.config_.preferDocumentPictureInPicture) {
+      return !!window.documentPictureInPicture.window;
+    } else {
+      return !!document.pictureInPictureElement;
+    }
+  }
+
+  /** @export */
+  async togglePiP() {
+    try {
+      if ('documentPictureInPicture' in window &&
+        this.config_.preferDocumentPictureInPicture) {
+        await this.toggleDocumentPictureInPicture_();
+      } else if (!document.pictureInPictureElement) {
+        // If you were fullscreen, leave fullscreen first.
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        }
+        const video = /** @type {HTMLVideoElement} */(this.localVideo_);
+        await video.requestPictureInPicture();
+      } else {
+        await document.exitPictureInPicture();
+      }
+    } catch (error) {
+      this.dispatchEvent(new shaka.util.FakeEvent(
+          'error', (new Map()).set('detail', error)));
+    }
+  }
+
+  /**
+   * The Document Picture-in-Picture API makes it possible to open an
+   * always-on-top window that can be populated with arbitrary HTML content.
+   * https://developer.chrome.com/docs/web-platform/document-picture-in-picture
+   * @private
+   */
+  async toggleDocumentPictureInPicture_() {
+    // Close Picture-in-Picture window if any.
+    if (window.documentPictureInPicture.window) {
+      window.documentPictureInPicture.window.close();
+      return;
+    }
+
+    // Open a Picture-in-Picture window.
+    const pipPlayer = this.videoContainer_;
+    const rectPipPlayer = pipPlayer.getBoundingClientRect();
+    const pipWindow = await window.documentPictureInPicture.requestWindow({
+      width: rectPipPlayer.width,
+      height: rectPipPlayer.height,
+    });
+
+    // Copy style sheets to the Picture-in-Picture window.
+    this.copyStyleSheetsToWindow_(pipWindow);
+
+    // Add placeholder for the player.
+    const parentPlayer = pipPlayer.parentNode || document.body;
+    const placeholder = this.videoContainer_.cloneNode(true);
+    placeholder.style.visibility = 'hidden';
+    placeholder.style.height = getComputedStyle(pipPlayer).height;
+    parentPlayer.appendChild(placeholder);
+
+    // Make sure player fits in the Picture-in-Picture window.
+    const styles = document.createElement('style');
+    styles.append(`[data-shaka-player-container] {
+      width: 100% !important; max-height: 100%}`);
+    pipWindow.document.head.append(styles);
+
+    // Move player to the Picture-in-Picture window.
+    pipWindow.document.body.append(pipPlayer);
+
+    // Listen for the PiP closing event to move the player back.
+    this.eventManager_.listenOnce(pipWindow, 'pagehide', () => {
+      placeholder.replaceWith(/** @type {!Node} */(pipPlayer));
+    });
+  }
+
+  /** @private */
+  copyStyleSheetsToWindow_(win) {
+    const styleSheets = /** @type {!Iterable<*>} */(document.styleSheets);
+    const allCSS = [...styleSheets]
+        .map((sheet) => {
+          try {
+            return [...sheet.cssRules].map((rule) => rule.cssText).join('');
+          } catch (e) {
+            const link = /** @type {!HTMLLinkElement} */(
+              document.createElement('link'));
+
+            link.rel = 'stylesheet';
+            link.type = sheet.type;
+            link.media = sheet.media;
+            link.href = sheet.href;
+            win.document.head.appendChild(link);
+          }
+          return '';
+        })
+        .filter(Boolean)
+        .join('\n');
+    const style = document.createElement('style');
+
+    style.textContent = allCSS;
+    win.document.head.appendChild(style);
+  }
+
+
   /** @export */
   showAdUI() {
     shaka.ui.Utils.setDisplay(this.adPanel_, true);
@@ -720,6 +848,11 @@ shaka.ui.Controls = class extends shaka.util.FakeEventTarget {
 
     if (!this.spinnerContainer_) {
       this.addBufferingSpinner_();
+    }
+
+    if (this.config_.seekOnTaps) {
+      this.addFastForwardButtonOnControlsContainer_();
+      this.addRewindButtonOnControlsContainer_();
     }
 
     this.addDaiAdContainer_();
@@ -843,6 +976,42 @@ shaka.ui.Controls = class extends shaka.util.FakeEventTarget {
     spinnerCircle.setAttribute('stroke-width', '1');
     spinnerCircle.setAttribute('stroke-miterlimit', '10');
     svg.appendChild(spinnerCircle);
+  }
+
+  /**
+   * Add fast-forward button on Controls container for moving video some
+   * seconds ahead when the video is tapped more than once, video seeks ahead
+   * some seconds for every extra tap.
+   * @private
+   */
+  addFastForwardButtonOnControlsContainer_() {
+    const hiddenFastForwardContainer = shaka.util.Dom.createHTMLElement('div');
+    hiddenFastForwardContainer.classList.add(
+        'shaka-hidden-fast-forward-container');
+    this.controlsContainer_.appendChild(hiddenFastForwardContainer);
+
+    /** @private {shaka.ui.HiddenFastForwardButton} */
+    this.hiddenFastForwardButton_ =
+        new shaka.ui.HiddenFastForwardButton(hiddenFastForwardContainer, this);
+    this.elements_.push(this.hiddenFastForwardButton_);
+  }
+
+  /**
+   * Add Rewind button on Controls container for moving video some seconds
+   * behind when the video is tapped more than once, video seeks behind some
+   * seconds for every extra tap.
+   * @private
+   */
+  addRewindButtonOnControlsContainer_() {
+    const hiddenRewindContainer = shaka.util.Dom.createHTMLElement('div');
+    hiddenRewindContainer.classList.add(
+        'shaka-hidden-rewind-container');
+    this.controlsContainer_.appendChild(hiddenRewindContainer);
+
+    /** @private {shaka.ui.HiddenRewindButton} */
+    this.hiddenRewindButton_ =
+        new shaka.ui.HiddenRewindButton(hiddenRewindContainer, this);
+    this.elements_.push(this.hiddenRewindButton_);
   }
 
   /** @private */
@@ -1271,6 +1440,7 @@ shaka.ui.Controls = class extends shaka.util.FakeEventTarget {
     }
 
     const keyboardSeekDistance = this.config_.keyboardSeekDistance;
+    const keyboardLargeSeekDistance = this.config_.keyboardLargeSeekDistance;
 
     switch (event.key) {
       case 'ArrowLeft':
@@ -1289,6 +1459,22 @@ shaka.ui.Controls = class extends shaka.util.FakeEventTarget {
           this.seek_(this.seekBar_.getValue() + keyboardSeekDistance);
         }
         break;
+      case 'PageDown':
+        // PageDown is like ArrowLeft, but has a larger jump distance, and does
+        // nothing to volume.
+        if (this.seekBar_ && isSeekBar && keyboardSeekDistance > 0) {
+          event.preventDefault();
+          this.seek_(this.seekBar_.getValue() - keyboardLargeSeekDistance);
+        }
+        break;
+      case 'PageUp':
+        // PageDown is like ArrowRight, but has a larger jump distance, and does
+        // nothing to volume.
+        if (this.seekBar_ && isSeekBar && keyboardSeekDistance > 0) {
+          event.preventDefault();
+          this.seek_(this.seekBar_.getValue() + keyboardLargeSeekDistance);
+        }
+        break;
       // Jump to the beginning of the video's seek range.
       case 'Home':
         if (this.seekBar_) {
@@ -1299,6 +1485,23 @@ shaka.ui.Controls = class extends shaka.util.FakeEventTarget {
       case 'End':
         if (this.seekBar_) {
           this.seek_(this.player_.seekRange().end);
+        }
+        break;
+      case 'f':
+        if (this.isFullScreenSupported()) {
+          this.toggleFullScreen();
+        }
+        break;
+      case 'm':
+        if (this.ad_ && this.ad_.isLinear()) {
+          this.ad_.setMuted(!this.ad_.isMuted());
+        } else {
+          this.localVideo_.muted = !this.localVideo_.muted;
+        }
+        break;
+      case 'p':
+        if (this.isPiPAllowed()) {
+          this.togglePiP();
         }
         break;
       // Pause or play by pressing space on the seek bar.

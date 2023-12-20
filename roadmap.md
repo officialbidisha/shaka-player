@@ -8,22 +8,66 @@ CHANGELOG.md.
 The goals of future milestones are fluid until we begin that development cycle,
 so the exact milestone for future features is not pre-determined.
 
-Priority features up next:
- - HLS improvements
-   https://github.com/shaka-project/shaka-player/projects/6
-
 Candidate features for future release cycles:
- - Preload API
-   https://github.com/shaka-project/shaka-player/issues/880
  - Official TypeScript defs, generated from source
    https://github.com/shaka-project/shaka-player/issues/1030
- - Codec-switching
-   https://github.com/shaka-project/shaka-player/issues/1528
  - Background fetch for offline storage
    https://github.com/shaka-project/shaka-player/issues/879
+ - A method to stitch together clips
+   https://github.com/shaka-project/shaka-player/issues/764
+ - Predict next segment in DASH SegmentTimeline
+   https://github.com/shaka-project/shaka-player/issues/898
  - Smaller, more modular binary
 
+v5.0 - 2024 Q1
+ - Preload API
+   https://github.com/shaka-project/shaka-player/issues/880
+
 =====
+
+v4.7 - 2023 Q4
+ - Common Media Server Data (CMSD)
+   https://github.com/shaka-project/shaka-player/issues/5890
+ - DASH: Handle mixed-codec variants
+   https://github.com/shaka-project/shaka-player/issues/5961
+ - Allow Media Source Recoveries
+ - UI: Add double tap to forward/rewind in the video
+   https://github.com/shaka-project/shaka-player/issues/3357
+ - Improve npm package size
+   https://github.com/shaka-project/shaka-player/issues/2172
+
+v4.6 - 2023 Q4
+ - Content Steering
+   https://github.com/shaka-project/shaka-player/issues/5704
+ - New DASH protocol for Low Latency.
+ - ManagedMediaSource
+   https://github.com/shaka-project/shaka-player/issues/5271
+ - Add thumbnails support in src=
+ - Remove state engine
+
+v4.5 - 2023 Q4
+ - Built-in transmuxer support for muxed content streams (audio+video)
+ - Built-in transmuxer support for H265 streams
+ - Remove optional mux.js dependency
+ - Codec switching
+   https://github.com/shaka-project/shaka-player/issues/1528
+ - AES-128 in DASH.
+   https://github.com/shaka-project/shaka-player/issues/5622
+ - AWS Elemental MediaTailor
+
+v4.4 - 2023 Q3
+ - Built-in transmuxer for common cases, no mux.js required:
+   - Raw AAC, AC3, or EC3 to MP4 container
+   - AAC, AC3, EC3, MP3, or H264 in TS to MP4 container
+   - MP3-in-TS to raw MP3
+ - Ads API improvements
+ - CEA parser for TS
+ - HLS support for non-sequence mode (as we had in v3)
+ - Partial support for large timestamps
+ - UI support for thumbnails on seek
+ - Microsoft SmoothStreaming support
+ - Segment prefetch
+ - Low latency improvements
 
 v4.3 - 2022 Q4
  - Support ID3 tags in mp4

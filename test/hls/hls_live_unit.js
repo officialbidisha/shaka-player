@@ -77,6 +77,8 @@ describe('HlsParser live', () => {
       enableLowLatencyMode: () => {},
       updateDuration: () => {},
       newDrmInfo: (stream) => {},
+      onManifestUpdated: () => {},
+      getBandwidthEstimate: () => 1e6,
     };
 
     parser = new shaka.hls.HlsParser();
@@ -540,9 +542,42 @@ describe('HlsParser live', () => {
 
     it('sets 3 times target duration as presentation delay if not configured',
         async () => {
+          const media = [
+            '#EXTM3U\n',
+            '#EXT-X-TARGETDURATION:5\n',
+            '#EXT-X-MAP:URI="init.mp4",BYTERANGE="616@0"\n',
+            '#EXT-X-MEDIA-SEQUENCE:0\n',
+            '#EXTINF:2,\n',
+            'main.mp4\n',
+            '#EXTINF:2,\n',
+            'main.mp4\n',
+            '#EXTINF:2,\n',
+            'main.mp4\n',
+            '#EXTINF:2,\n',
+            'main.mp4\n',
+            '#EXTINF:2,\n',
+            'main.mp4\n',
+            '#EXTINF:2,\n',
+            'main.mp4\n',
+          ].join('');
           const manifest = await testInitialManifest(master, media);
           expect(manifest.presentationTimeline.getDelay()).toBe(15);
         });
+
+    it('sets 1 times target duration as presentation delay if there are not enough segments', async () => { // eslint-disable-line max-len
+      const media = [
+        '#EXTM3U\n',
+        '#EXT-X-TARGETDURATION:5\n',
+        '#EXT-X-MAP:URI="init.mp4",BYTERANGE="616@0"\n',
+        '#EXT-X-MEDIA-SEQUENCE:0\n',
+        '#EXTINF:2,\n',
+        'main.mp4\n',
+        '#EXTINF:2,\n',
+        'main.mp4\n',
+      ].join('');
+      const manifest = await testInitialManifest(master, media);
+      expect(manifest.presentationTimeline.getDelay()).toBe(5);
+    });
 
     it('sets presentation delay if defined', async () => {
       const media = [
@@ -653,23 +688,29 @@ describe('HlsParser live', () => {
       const partialRef = makeReference(
           'test:/partial.mp4', 0, 2, /* syncTime= */ null,
           /* baseUri= */ '', /* startByte= */ 0, /* endByte= */ null);
+      partialRef.partial = true;
 
       const partialRef2 = makeReference(
           'test:/partial2.mp4', 2, 4, /* syncTime= */ null,
           /* baseUri= */ '', /* startByte= */ 0, /* endByte= */ null);
+      partialRef2.partial = true;
+      partialRef2.lastPartial = true;
 
       const ref = makeReference(
           'test:/main.mp4', 0, 4, /* syncTime= */ null,
           /* baseUri= */ '', /* startByte= */ 0, /* endByte= */ null,
           /* timestampOffset= */ 0, [partialRef, partialRef2]);
+      ref.allPartialSegments = true;
 
       const partialRef3 = makeReference(
           'test:/partial.mp4', 4, 6, /* syncTime= */ null,
           /* baseUri= */ '', /* startByte= */ 0, /* endByte= */ null);
+      partialRef3.partial = true;
 
       const preloadRef = makeReference(
           'test:/partial.mp4', 6, 7.5, /* syncTime= */ null,
           /* baseUri= */ '', /* startByte= */ 0, /* endByte= */ null);
+      preloadRef.partial = true;
       preloadRef.markAsPreload();
       preloadRef.markAsNonIndependent();
 
@@ -739,6 +780,7 @@ describe('HlsParser live', () => {
             'test:/ref1.mp4', 0, 4, /* syncTime= */ null,
             /* baseUri= */ '', /* startByte= */ 0, /* endByte= */ 429,
             /* timestampOffset= */ 0, [partialRef, partialRef2]);
+        ref.allPartialSegments = true;
 
         const partialRef3 = makeReference(
             'test:/ref2.mp4', 4, 6, /* syncTime= */ null,
@@ -932,9 +974,11 @@ describe('HlsParser live', () => {
             'test:/main.mp4', 0, 2, /* syncTime= */ null);
 
         const newRef1 = makeReference(
-            'test:/redirected/main.mp4', 0, 2, /* syncTime= */ null);
+            ['test:/redirected/main.mp4', 'test:/main.mp4'],
+            0, 2, /* syncTime= */ null);
         const newRef2 = makeReference(
-            'test:/redirected/main2.mp4', 2, 4, /* syncTime= */ null);
+            ['test:/redirected/main2.mp4', 'test:/main2.mp4'],
+            2, 4, /* syncTime= */ null);
 
         let playlistFetchCount = 0;
 
@@ -1266,7 +1310,7 @@ describe('HlsParser live', () => {
   });  // describe('playlist type LIVE')
 
   /**
-   * @param {string} uri A relative URI to http://example.com
+   * @param {string|Array.<string>} uri A relative URI to http://example.com
    * @param {number} start
    * @param {number} end
    * @param {?number} syncTime

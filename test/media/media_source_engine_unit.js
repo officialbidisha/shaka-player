@@ -56,9 +56,9 @@ describe('MediaSourceEngine', () => {
   const buffer2 = /** @type {!ArrayBuffer} */ (/** @type {?} */ (2));
   const buffer3 = /** @type {!ArrayBuffer} */ (/** @type {?} */ (3));
 
-  const fakeVideoStream = {mimeType: 'video/foo', drmInfos: []};
-  const fakeAudioStream = {mimeType: 'audio/foo', drmInfos: []};
-  const fakeTextStream = {mimeType: 'text/foo', drmInfos: []};
+  const fakeVideoStream = {mimeType: 'video/mp4', drmInfos: [{}]};
+  const fakeAudioStream = {mimeType: 'audio/mp4', drmInfos: []};
+  const fakeTextStream = {mimeType: 'text/mp4', drmInfos: []};
   const fakeTransportStream = {mimeType: 'tsMimetype', drmInfos: []};
 
   /** @type {shaka.extern.Stream} */
@@ -82,6 +82,10 @@ describe('MediaSourceEngine', () => {
 
   /** @type {!jasmine.Spy} */
   let createMediaSourceSpy;
+  /** @type {!jasmine.Spy} */
+  let requiresEncryptionInfoInAllInitSegmentsSpy;
+  /** @type {!jasmine.Spy} */
+  let fakeEncryptionSpy;
 
   /** @type {!shaka.media.MediaSourceEngine} */
   let mediaSourceEngine;
@@ -112,7 +116,13 @@ describe('MediaSourceEngine', () => {
     mockMediaSource = createMockMediaSource();
     mockMediaSource.addSourceBuffer.and.callFake((mimeType) => {
       const type = mimeType.split('/')[0];
-      return type == 'audio' ? audioSourceBuffer : videoSourceBuffer;
+      const buffer = type == 'audio' ? audioSourceBuffer : videoSourceBuffer;
+      // reset buffer params
+      buffer.timestampOffset = 0;
+      buffer.appendWindowEnd = Infinity;
+      buffer.appendWindowStart = 0;
+
+      return buffer;
     });
     mockTransmuxer = new shaka.test.FakeTransmuxer();
     shaka.transmuxer.TransmuxerEngine.findTransmuxer =
@@ -139,6 +149,12 @@ describe('MediaSourceEngine', () => {
     shaka.media.MediaSourceEngine.prototype.createMediaSource =
         Util.spyFunc(createMediaSourceSpy);
 
+    requiresEncryptionInfoInAllInitSegmentsSpy = spyOn(shaka.util.Platform,
+        'requiresEncryptionInfoInAllInitSegments').and.returnValue(false);
+
+    fakeEncryptionSpy = spyOn(shaka.media.ContentWorkarounds, 'fakeEncryption')
+        .and.callFake((data) => data + 100);
+
     // MediaSourceEngine uses video to:
     //  - set src attribute
     //  - read error codes when operations fail
@@ -157,10 +173,12 @@ describe('MediaSourceEngine', () => {
         goog.asserts.assert(attr == 'src', 'Unexpected removeAttribute() call');
         mockVideo.src = '';
       },
+      addEventListener: jasmine.createSpy('addVideoEventListener'),
       load: /** @this {HTMLVideoElement} */ () => {
         // This assertion alerts us if the requirements for this mock change.
         goog.asserts.assert(mockVideo.src == '', 'Unexpected load() call');
       },
+      play: jasmine.createSpy('play'),
     };
     video = /** @type {HTMLMediaElement} */(mockVideo);
     mockClosedCaptionParser = new shaka.test.FakeClosedCaptionParser();
@@ -269,8 +287,8 @@ describe('MediaSourceEngine', () => {
       initObject.set(ContentType.AUDIO, fakeAudioStream);
       initObject.set(ContentType.VIDEO, fakeVideoStream);
       await mediaSourceEngine.init(initObject, false);
-      expect(mockMediaSource.addSourceBuffer).toHaveBeenCalledWith('audio/foo');
-      expect(mockMediaSource.addSourceBuffer).toHaveBeenCalledWith('video/foo');
+      expect(mockMediaSource.addSourceBuffer).toHaveBeenCalledWith('audio/mp4');
+      expect(mockMediaSource.addSourceBuffer).toHaveBeenCalledWith('video/mp4');
       expect(shaka.text.TextEngine).not.toHaveBeenCalled();
     });
 
@@ -394,6 +412,42 @@ describe('MediaSourceEngine', () => {
       initObject.set(ContentType.VIDEO, fakeVideoStream);
       initObject.set(ContentType.TEXT, fakeTextStream);
       await mediaSourceEngine.init(initObject, false);
+    });
+
+    it('should apply fake encryption by default', async () => {
+      requiresEncryptionInfoInAllInitSegmentsSpy.and.returnValue(true);
+
+      const p = mediaSourceEngine.appendBuffer(
+          ContentType.VIDEO, buffer, null, fakeStream,
+          /* hasClosedCaptions= */ false);
+
+      expect(fakeEncryptionSpy).toHaveBeenCalled();
+
+      expect(videoSourceBuffer.appendBuffer)
+          .toHaveBeenCalledWith((buffer + 100));
+      videoSourceBuffer.updateend();
+
+      await p;
+    });
+
+    it('should not apply fake encryption when config is off', async () => {
+      requiresEncryptionInfoInAllInitSegmentsSpy.and.returnValue(true);
+
+      const config = shaka.util.PlayerConfiguration.createDefault().mediaSource;
+      config.insertFakeEncryptionInInit = false;
+
+      mediaSourceEngine.configure(config);
+
+      const p = mediaSourceEngine.appendBuffer(
+          ContentType.VIDEO, buffer, null, fakeStream,
+          /* hasClosedCaptions= */ false);
+
+      expect(fakeEncryptionSpy).not.toHaveBeenCalled();
+
+      expect(videoSourceBuffer.appendBuffer).toHaveBeenCalledWith(buffer);
+      videoSourceBuffer.updateend();
+
+      await p;
     });
 
     it('appends the given data', async () => {
@@ -577,7 +631,7 @@ describe('MediaSourceEngine', () => {
           ContentType.TEXT, data, reference, fakeStream,
           /* hasClosedCaptions= */ false);
       expect(mockTextEngine.appendBuffer).toHaveBeenCalledWith(
-          data, 0, 10);
+          data, 0, 10, 'foo://bar');
     });
 
     it('appends transmuxed data', async () => {
@@ -863,7 +917,8 @@ describe('MediaSourceEngine', () => {
           /* appendWindowStart= */ 0,
           /* appendWindowEnd= */ 20,
           /* sequenceMode= */ false,
-          fakeStream,
+          fakeStream.mimeType,
+          fakeStream.codecs,
           /* streamsByType= */ new Map());
       expect(mockTextEngine.setTimestampOffset).toHaveBeenCalledWith(10);
       expect(mockTextEngine.setAppendWindow).toHaveBeenCalledWith(0, 20);
@@ -1090,6 +1145,161 @@ describe('MediaSourceEngine', () => {
     });
   });
 
+  describe('reload codec switching', () => {
+    beforeEach(
+        /** @suppress {visibility, checkTypes} */
+        () => {
+          mediaSourceEngine.eventManager_.listenOnce =
+              jasmine.createSpy('listener');
+          mediaSourceEngine.eventManager_.listen =
+              jasmine.createSpy('eventListener');
+        });
+    const initObject = new Map();
+    initObject.set(ContentType.VIDEO, fakeVideoStream);
+    initObject.set(ContentType.AUDIO, fakeAudioStream);
+
+    it('should re-create a new MediaSource',
+    /** @suppress {visibility} */ async () => {
+          await mediaSourceEngine.init(initObject, false);
+          mediaSourceEngine.reset_(initObject);
+          expect(createMediaSourceSpy).toHaveBeenCalled();
+        });
+
+    it('should re-create the audio & video source buffers',
+    /** @suppress {invalidCasts, visibility, checkTypes} */ async () => {
+          await mediaSourceEngine.init(initObject, false);
+          mediaSourceEngine.reset_(initObject);
+          expect(mockMediaSource.addSourceBuffer).toHaveBeenCalledTimes(2);
+        });
+
+    it('should persist the previous source buffer parameters',
+    /** @suppress {invalidCasts, visibility, checkTypes} */async () => {
+          await mediaSourceEngine.init(initObject, false);
+
+          audioSourceBuffer.timestampOffset = 10;
+          audioSourceBuffer.appendWindowStart = 5;
+          audioSourceBuffer.appendWindowEnd = 20;
+
+          videoSourceBuffer.timestampOffset = 20;
+          videoSourceBuffer.appendWindowStart = 15;
+          videoSourceBuffer.appendWindowEnd = 30;
+
+          mediaSourceEngine.reset_(initObject);
+
+          expect(audioSourceBuffer.timestampOffset).toBe(10);
+          expect(audioSourceBuffer.appendWindowStart).toBe(5);
+          expect(audioSourceBuffer.appendWindowEnd).toBe(20);
+
+          expect(videoSourceBuffer.timestampOffset).toBe(20);
+          expect(videoSourceBuffer.appendWindowStart).toBe(15);
+          expect(videoSourceBuffer.appendWindowEnd).toBe(30);
+        });
+
+    it('should preserve autoplay state',
+    /** @suppress {invalidCasts, visibility, checkTypes} */
+        async () => {
+          const originalInitSourceBuffer = mediaSourceEngine.initSourceBuffer_;
+          try {
+            await mediaSourceEngine.init(initObject, false);
+            video.autoplay = true;
+            video.paused = true;
+            const playSpy = /** @type {jasmine.Spy} */ (video.play);
+            const addListenOnceSpy =
+            /** @type {jasmine.Spy} */
+              (mediaSourceEngine.eventManager_.listenOnce);
+            const addEventListenerSpy =
+            /** @type {jasmine.Spy} */
+                (mediaSourceEngine.eventManager_.listen);
+            mediaSourceEngine.playbackHasBegun_ = true;
+            mediaSourceEngine.initSourceBuffer_ =
+              jasmine.createSpy('initSourceBuffer');
+            const initSourceBufferSpy =
+            /** @type {jasmine.Spy} */
+                (mediaSourceEngine.initSourceBuffer_);
+            addEventListenerSpy.and.callFake((o, e, c) => {
+              c(); // audio
+              c(); // video
+            });
+            await mediaSourceEngine.reset_(initObject);
+            const callback = addListenOnceSpy.calls.argsFor(0)[2];
+            callback();
+            expect(initSourceBufferSpy).toHaveBeenCalled();
+            expect(addListenOnceSpy.calls.argsFor(0)[1]).toBe('canplay');
+            expect(video.autoplay).toBe(true);
+            expect(playSpy).not.toHaveBeenCalled();
+          } finally {
+            mediaSourceEngine.initSourceBuffer_ = originalInitSourceBuffer;
+          }
+        });
+
+    it('should not set autoplay to false if playback has not begun',
+    /** @suppress {invalidCasts, visibility, checkTypes} */
+        async () => {
+          const originalInitSourceBuffer = mediaSourceEngine.initSourceBuffer_;
+          try {
+            await mediaSourceEngine.init(initObject, false);
+            video.autoplay = true;
+            let setCount = 0;
+            const addEventListenerSpy =
+            /** @type {jasmine.Spy} */
+              (mediaSourceEngine.eventManager_.listen);
+            addEventListenerSpy.and.callFake((o, e, c) => {
+              c(); // audio
+              c(); // video
+            });
+            mediaSourceEngine.initSourceBuffer_ =
+            jasmine.createSpy('initSourceBuffer');
+            Object.defineProperty(video, 'autoplay', {
+              get: () => true,
+              set: () => {
+                setCount++;
+              },
+            });
+            await mediaSourceEngine.reset_(initObject);
+            expect(setCount).toBe(0);
+          } finally {
+            mediaSourceEngine.initSourceBuffer_ = originalInitSourceBuffer;
+          }
+        });
+
+    it('should preserve playing state',
+    /** @suppress {invalidCasts, visibility, checkTypes} */
+        async () => {
+          const originalInitSourceBuffer = mediaSourceEngine.initSourceBuffer_;
+          try {
+            await mediaSourceEngine.init(initObject, false);
+            video.autoplay = false;
+            video.paused = false;
+            const playSpy = /** @type {jasmine.Spy} */ (video.play);
+            const addListenOnceSpy =
+            /** @type {jasmine.Spy} */
+              (mediaSourceEngine.eventManager_.listenOnce);
+            const addEventListenerSpy =
+            /** @type {jasmine.Spy} */
+                (mediaSourceEngine.eventManager_.listen);
+            mediaSourceEngine.playbackHasBegun_ = true;
+            mediaSourceEngine.initSourceBuffer_ =
+              jasmine.createSpy('initSourceBuffer');
+            const initSourceBufferSpy =
+            /** @type {jasmine.Spy} */
+                (mediaSourceEngine.initSourceBuffer_);
+            addEventListenerSpy.and.callFake((o, e, c) => {
+              c(); // audio
+              c(); // video
+            });
+            await mediaSourceEngine.reset_(initObject);
+            const callback = addListenOnceSpy.calls.argsFor(0)[2];
+            callback();
+            expect(initSourceBufferSpy).toHaveBeenCalled();
+            expect(addListenOnceSpy.calls.argsFor(0)[1]).toBe('canplay');
+            expect(video.autoplay).toBe(false);
+            expect(playSpy).toHaveBeenCalled();
+          } finally {
+            mediaSourceEngine.initSourceBuffer_ = originalInitSourceBuffer;
+          }
+        });
+  });
+
   describe('destroy', () => {
     beforeEach(async () => {
       captureEvents(audioSourceBuffer, ['updateend', 'error']);
@@ -1196,7 +1406,7 @@ describe('MediaSourceEngine', () => {
     });
 
     it('destroys text engines', async () => {
-      mediaSourceEngine.reinitText('text/vtt', false);
+      mediaSourceEngine.reinitText('text/vtt', false, false);
 
       await mediaSourceEngine.destroy();
       expect(mockTextEngine).toBeTruthy();
@@ -1213,6 +1423,7 @@ describe('MediaSourceEngine', () => {
   function createMockMediaSource() {
     const mediaSource = {
       readyState: 'open',
+      sourceBuffers: document.createElement('div'),
       addSourceBuffer: jasmine.createSpy('addSourceBuffer'),
       endOfStream: jasmine.createSpy('endOfStream'),
       durationGetter: jasmine.createSpy('duration getter'),

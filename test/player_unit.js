@@ -48,7 +48,7 @@ describe('Player', () => {
   /** @type {!shaka.test.FakeVideo} */
   let video;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // By default, errors are a failure.
     logErrorSpy = jasmine.createSpy('shaka.log.error');
     logErrorSpy.calls.reset();
@@ -92,7 +92,7 @@ describe('Player', () => {
         variant.addVideo(2);
       });
       manifest.addVariant(1, (variant) => {
-        variant.addAudio(3);
+        variant.addAudio(1);
         variant.addVideo(4);
       });
     });
@@ -124,12 +124,13 @@ describe('Player', () => {
         open: jasmine.createSpy('open').and.returnValue(Promise.resolve()),
         destroy:
             jasmine.createSpy('destroy').and.returnValue(Promise.resolve()),
+        setTextDisplayer: jasmine.createSpy('setTextDisplayer'),
         setUseEmbeddedText: jasmine.createSpy('setUseEmbeddedText'),
         getUseEmbeddedText: jasmine.createSpy('getUseEmbeddedText'),
         setSegmentRelativeVttTiming:
             jasmine.createSpy('setSegmentRelativeVttTiming'),
-        updateLcevcDil:
-            jasmine.createSpy('updateLcevcDil'),
+        updateLcevcDec:
+            jasmine.createSpy('updateLcevcDec'),
         getTextDisplayer: () => textDisplayer,
         getBufferedInfo: () => bufferedInfo,
         ended: jasmine.createSpy('ended').and.returnValue(false),
@@ -151,7 +152,8 @@ describe('Player', () => {
     }
 
     video = new shaka.test.FakeVideo(20);
-    player = new shaka.Player(video, dependencyInjector);
+    player = new shaka.Player(null, dependencyInjector);
+    await player.attach(video);
     player.configure({
       // Ensures we don't get a warning about missing preference.
       preferredAudioLanguage: 'en',
@@ -170,6 +172,7 @@ describe('Player', () => {
     try {
       await player.destroy();
     } finally {
+      player.releaseAllMutexes();
       shaka.log.error = originalLogError;
       shaka.log.alwaysError = originalLogError;
       shaka.log.warning = originalLogWarn;
@@ -184,6 +187,7 @@ describe('Player', () => {
   describe('destroy', () => {
     it('cleans up all dependencies', async () => {
       goog.asserts.assert(manifest, 'Manifest should be non-null');
+      await player.load(fakeManifestUri, 0, fakeMimeType);
       const segmentIndexes = [];
       for (const variant of manifest.variants) {
         if (variant.audio) {
@@ -232,31 +236,6 @@ describe('Player', () => {
 
       expect(mediaSourceEngine.destroy).toHaveBeenCalled();
       expect(drmEngine.destroy).toHaveBeenCalled();
-    });
-
-    // TODO(vaage): Re-enable once the parser is integrated into the load graph
-    //              better.
-    xit('destroys parser first when interrupting load', async () => {
-      const p = shaka.test.Util.shortDelay();
-      /** @type {!shaka.test.FakeManifestParser} */
-      const parser = new shaka.test.FakeManifestParser(manifest);
-      parser.start.and.returnValue(p);
-      parser.stop.and.callFake(() => {
-        expect(abrManager.stop).not.toHaveBeenCalled();
-        expect(abrManager.release).not.toHaveBeenCalled();
-        expect(networkingEngine.destroy).not.toHaveBeenCalled();
-      });
-      shaka.media.ManifestParser.registerParserByMime(
-          fakeMimeType, () => parser);
-
-      const load = player.load(fakeManifestUri, 0, fakeMimeType);
-      await shaka.test.Util.shortDelay();
-      await player.destroy();
-      expect(abrManager.stop).toHaveBeenCalled();
-      expect(abrManager.release).toHaveBeenCalled();
-      expect(networkingEngine.destroy).toHaveBeenCalled();
-      expect(parser.stop).toHaveBeenCalled();
-      await expectAsync(load).toBeRejected();
     });
   });
 
@@ -340,15 +319,12 @@ describe('Player', () => {
     });
 
     describe('disableStream', () => {
-      /** @type {function(function(), number)} */
-      let realSetTimeout;
       /** @type {number} */
       let disableTimeInSeconds;
       /** @type {?jasmine.Spy} */
       let getBufferedInfoSpy;
 
       beforeAll(() => {
-        realSetTimeout = window.setTimeout;
         jasmine.clock().install();
         jasmine.clock().mockDate();
       });
@@ -381,15 +357,21 @@ describe('Player', () => {
               stream.mime('audio/mp4', 'mp4a.40.2');
               stream.language = 'en';
             });
-            variant.addVideo(2);
+            variant.addVideo(2, (stream) => {
+              stream.size(10, 10);
+            });
           });
           manifest.addVariant(1, (variant) => {
             variant.addExistingStream(1);
-            variant.addVideo(3);
+            variant.addVideo(3, (stream) => {
+              stream.size(20, 20);
+            });
           });
           manifest.addVariant(2, (variant) => {
             variant.addExistingStream(1);
-            variant.addVideo(4);
+            variant.addVideo(4, (stream) => {
+              stream.size(30, 30);
+            });
           });
         });
       }
@@ -496,102 +478,6 @@ describe('Player', () => {
         expect(updatedVariants.length).toBe(variantCount);
         expect(forceSwitch).toBeFalsy();
         expect(fromAdaptation).toBeFalsy();
-      });
-
-      it('disables all variants containing stream', async () => {
-        manifest = shaka.test.ManifestGenerator.generate((manifest) => {
-          manifest.addVariant(0, (variant) => {
-            variant.addAudio(1, (stream) => {
-              stream.mime('audio/mp4', 'mp4a.40.2');
-              stream.language = 'en';
-              stream.bandwidth = 100;
-            });
-            variant.addVideo(2);
-          });
-          manifest.addVariant(1, (variant) => {
-            variant.addExistingStream(1);
-            variant.addVideo(3);
-          });
-
-          manifest.addVariant(2, (variant) => {
-            variant.addAudio(4, (stream) => {
-              stream.mime('audio/mp4', 'mp4a.40.2');
-              stream.language = 'en';
-              stream.bandwidth = 200;
-            });
-            variant.addExistingStream(2);
-          });
-          manifest.addVariant(3, (variant) => {
-            variant.addExistingStream(4);
-            variant.addExistingStream(3);
-          });
-        });
-
-        await player.load(fakeManifestUri, 0, fakeMimeType);
-
-        const variantCount = manifest.variants.length;
-        const variantAffected = 2;
-        const audioStream =
-        /** @type {shaka.extern.Stream} */ (manifest.variants[0].audio);
-
-        player.disableStream(audioStream, disableTimeInSeconds);
-
-        await shaka.test.Util.shortDelay(realSetTimeout);
-
-        expect(abrManager.setVariants).toHaveBeenCalled();
-
-        const updatedVariants =
-            abrManager.setVariants.calls.mostRecent().args[0];
-
-        expect(updatedVariants.length).toBe(variantCount - variantAffected);
-
-        for (const variant of updatedVariants) {
-          expect(variant.audio).not.toEqual(audioStream);
-        }
-      });
-
-      it('does not disable streams if abr is disabled', async () => {
-        await player.load(fakeManifestUri, 0, fakeMimeType);
-
-        player.configure({abr: {enabled: true}});
-
-        const videoStream =
-        /** @type {shaka.extern.Stream} */ (manifest.variants[0].video);
-        let status = player.disableStream(videoStream, 10);
-        expect(status).toBe(true);
-
-        player.configure({abr: {enabled: false}});
-
-        status = player.disableStream(videoStream, 10);
-        expect(status).toBe(false);
-      });
-
-      it('disables stream if have alternate stream', async () => {
-        // Run test with the default manifest
-        await runTest(0, 'video', true);
-
-        manifest = shaka.test.ManifestGenerator.generate((manifest) => {
-          manifest.addVariant(0, (variant) => {
-            variant.addAudio(1, (stream) => {
-              stream.mime('audio/mp4', 'mp4a.40.2');
-              stream.language = 'en';
-              stream.bandwidth = 10;
-            });
-            variant.addVideo(2);
-          });
-          manifest.addVariant(1, (variant) => {
-            variant.addAudio(3, (stream) => {
-              stream.mime('audio/mp4', 'mp4a.40.2');
-              stream.language = 'en';
-              stream.bandwidth = 20;
-            });
-            variant.addExistingStream(2);
-          });
-        });
-
-        player.configure({abr: {enabled: true}});
-
-        await runTest(0, 'audio', true);
       });
 
       describe('does not disable stream if there not alternate stream', () => {
@@ -1292,12 +1178,31 @@ describe('Player', () => {
           rebufferingGoal: 1,
           inaccurateManifestTolerance: 1,
           segmentPrefetchLimit: 1,
+          retryParameters: {
+            baseDelay: 2000,
+          },
+        },
+        manifest: {
+          retryParameters: {
+            baseDelay: 2000,
+          },
+        },
+        drm: {
+          retryParameters: {
+            baseDelay: 2000,
+          },
         },
       });
       expect(player.getConfiguration().streaming.rebufferingGoal).toBe(1);
       expect(player.getConfiguration().streaming.inaccurateManifestTolerance)
           .toBe(1);
       expect(player.getConfiguration().streaming.segmentPrefetchLimit).toBe(1);
+      expect(player.getConfiguration().streaming.retryParameters.baseDelay)
+          .toBe(2000);
+      expect(player.getConfiguration().manifest.retryParameters.baseDelay)
+          .toBe(2000);
+      expect(player.getConfiguration().drm.retryParameters.baseDelay)
+          .toBe(2000);
 
       // When low latency streaming gets enabled, rebufferingGoal will default
       // to 0.01 if unless specified, inaccurateManifestTolerance will
@@ -1308,6 +1213,12 @@ describe('Player', () => {
       expect(player.getConfiguration().streaming.inaccurateManifestTolerance)
           .toBe(0);
       expect(player.getConfiguration().streaming.segmentPrefetchLimit).toBe(2);
+      expect(player.getConfiguration().streaming.retryParameters.baseDelay)
+          .toBe(100);
+      expect(player.getConfiguration().manifest.retryParameters.baseDelay)
+          .toBe(100);
+      expect(player.getConfiguration().drm.retryParameters.baseDelay)
+          .toBe(100);
     });
   });
 
@@ -1595,6 +1506,7 @@ describe('Player', () => {
           frameRate: 1000000 / 42000,
           pixelAspectRatio: '59:54',
           hdr: null,
+          videoLayout: null,
           mimeType: 'video/mp4',
           audioMimeType: 'audio/mp4',
           videoMimeType: 'video/mp4',
@@ -1633,6 +1545,7 @@ describe('Player', () => {
           frameRate: 24,
           pixelAspectRatio: '59:54',
           hdr: null,
+          videoLayout: null,
           mimeType: 'video/mp4',
           audioMimeType: 'audio/mp4',
           videoMimeType: 'video/mp4',
@@ -1671,6 +1584,7 @@ describe('Player', () => {
           frameRate: 1000000 / 42000,
           pixelAspectRatio: '59:54',
           hdr: null,
+          videoLayout: null,
           mimeType: 'video/mp4',
           audioMimeType: 'audio/mp4',
           videoMimeType: 'video/mp4',
@@ -1709,6 +1623,7 @@ describe('Player', () => {
           frameRate: 24,
           pixelAspectRatio: '59:54',
           hdr: null,
+          videoLayout: null,
           mimeType: 'video/mp4',
           audioMimeType: 'audio/mp4',
           videoMimeType: 'video/mp4',
@@ -1747,6 +1662,7 @@ describe('Player', () => {
           frameRate: 1000000 / 42000,
           pixelAspectRatio: '59:54',
           hdr: null,
+          videoLayout: null,
           mimeType: 'video/mp4',
           audioMimeType: 'audio/mp4',
           videoMimeType: 'video/mp4',
@@ -1785,6 +1701,7 @@ describe('Player', () => {
           frameRate: 24,
           pixelAspectRatio: '59:54',
           hdr: null,
+          videoLayout: null,
           mimeType: 'video/mp4',
           audioMimeType: 'audio/mp4',
           videoMimeType: 'video/mp4',
@@ -1823,6 +1740,7 @@ describe('Player', () => {
           frameRate: 1000000 / 42000,
           pixelAspectRatio: '59:54',
           hdr: null,
+          videoLayout: null,
           mimeType: 'video/mp4',
           audioMimeType: 'audio/mp4',
           videoMimeType: 'video/mp4',
@@ -1861,6 +1779,7 @@ describe('Player', () => {
           frameRate: 24,
           pixelAspectRatio: '59:54',
           hdr: null,
+          videoLayout: null,
           mimeType: 'video/mp4',
           audioMimeType: 'audio/mp4',
           videoMimeType: 'video/mp4',
@@ -1918,6 +1837,7 @@ describe('Player', () => {
           frameRate: null,
           pixelAspectRatio: null,
           hdr: null,
+          videoLayout: null,
           videoId: null,
           audioId: null,
           originalAudioId: null,
@@ -1956,6 +1876,7 @@ describe('Player', () => {
           frameRate: null,
           pixelAspectRatio: null,
           hdr: null,
+          videoLayout: null,
           videoId: null,
           audioId: null,
           originalAudioId: null,
@@ -1994,6 +1915,7 @@ describe('Player', () => {
           frameRate: null,
           pixelAspectRatio: null,
           hdr: null,
+          videoLayout: null,
           videoId: null,
           audioId: null,
           originalAudioId: null,
@@ -2035,6 +1957,7 @@ describe('Player', () => {
           frameRate: null,
           pixelAspectRatio: null,
           hdr: null,
+          videoLayout: null,
           videoId: null,
           audioId: null,
           originalAudioId: null,
@@ -2711,15 +2634,15 @@ describe('Player', () => {
         });
         manifest.addVariant(2, (variant) => {
           variant.bandwidth = 300;
-          variant.addAudio(4, (stream) => {
+          variant.addAudio(1, (stream) => {
             stream.bandwidth = 200;
           });
           variant.addExistingStream(2);  // video
         });
         manifest.addVariant(3, (variant) => {
           variant.bandwidth = 400;
-          variant.addExistingStream(4);  // audio
-          variant.addExistingStream(3);  // video
+          variant.addExistingStream(1);  // audio
+          variant.addExistingStream(2);  // video
         });
       });
 
@@ -3028,11 +2951,15 @@ describe('Player', () => {
       manifest = shaka.test.ManifestGenerator.generate((manifest) => {
         manifest.addVariant(0, (variant) => {
           variant.bandwidth = 500;
-          variant.addVideo(1);
+          variant.addVideo(1, (stream) => {
+            stream.size(10, 10);
+          });
         });
         manifest.addVariant(1, (variant) => {
           variant.bandwidth = 100;
-          variant.addVideo(2);
+          variant.addVideo(2, (stream) => {
+            stream.size(30, 30);
+          });
         });
       });
 
@@ -3067,11 +2994,15 @@ describe('Player', () => {
       manifest = shaka.test.ManifestGenerator.generate((manifest) => {
         manifest.addVariant(1, (variant) => {
           variant.bandwidth = 500;
-          variant.addVideo(10);
+          variant.addVideo(10, (stream) => {
+            stream.size(10, 10);
+          });
         });
         manifest.addVariant(2, (variant) => {
           variant.bandwidth = 100;
-          variant.addVideo(20);
+          variant.addVideo(20, (stream) => {
+            stream.size(30, 30);
+          });
         });
       });
 
@@ -3101,10 +3032,13 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(1, (variant) => {
-          variant.addVideo(2);
+          variant.addVideo(2, (stream) => {
+            stream.size(20, 20);
+          });
         });
       });
 
@@ -3133,10 +3067,13 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(1, (variant) => {
-          variant.addVideo(2);
+          variant.addVideo(2, (stream) => {
+            stream.size(20, 20);
+          });
         });
       });
 
@@ -3232,10 +3169,13 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(1, (variant) => {
-          variant.addVideo(2);
+          variant.addVideo(2, (stream) => {
+            stream.size(20, 20);
+          });
         });
       });
 
@@ -3254,10 +3194,13 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(1, (variant) => {
-          variant.addVideo(2);
+          variant.addVideo(2, (stream) => {
+            stream.size(20, 20);
+          });
         });
       });
 
@@ -3276,10 +3219,13 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(2, (variant) => {
-          variant.addVideo(3);
+          variant.addVideo(3, (stream) => {
+            stream.size(20, 20);
+          });
         });
       });
 
@@ -3299,16 +3245,19 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(2, (variant) => {
           variant.addVideo(3, (stream) => {
             stream.keyIds = new Set(['def']);
+            stream.size(20, 20);
           });
         });
         manifest.addVariant(4, (variant) => {
           variant.addVideo(5, (stream) => {
             stream.keyIds = new Set(['abc', 'def']);
+            stream.size(30, 30);
           });
         });
       });
@@ -3326,10 +3275,13 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(2, (variant) => {
-          variant.addVideo(3);
+          variant.addVideo(3, (stream) => {
+            stream.size(20, 20);
+          });
         });
       });
 
@@ -3349,10 +3301,13 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(2, (variant) => {
-          variant.addVideo(3);
+          variant.addVideo(3, (stream) => {
+            stream.size(20, 20);
+          });
         });
       });
 
@@ -3371,15 +3326,19 @@ describe('Player', () => {
             manifest.addVariant(0, (variant) => {
               variant.addVideo(1, (stream) => {
                 stream.keyIds = new Set(['abc']);
+                stream.size(10, 10);
               });
             });
             manifest.addVariant(2, (variant) => {
               variant.addVideo(3, (stream) => {
                 stream.keyIds = new Set(['xyz']);
+                stream.size(20, 20);
               });
             });
             manifest.addVariant(4, (variant) => {
-              variant.addVideo(5);
+              variant.addVideo(5, (stream) => {
+                stream.size(30, 30);
+              });
             });
           });
 
@@ -3433,15 +3392,21 @@ describe('Player', () => {
       manifest = shaka.test.ManifestGenerator.generate((manifest) => {
         manifest.addVariant(0, (variant) => {
           variant.bandwidth = 10;
-          variant.addVideo(1);
+          variant.addVideo(1, (stream) => {
+            stream.size(10, 10);
+          });
         });
         manifest.addVariant(1, (variant) => {
           variant.bandwidth = 1500;
-          variant.addVideo(2);
+          variant.addVideo(2, (stream) => {
+            stream.size(20, 20);
+          });
         });
         manifest.addVariant(2, (variant) => {
           variant.bandwidth = 500;
-          variant.addVideo(3);
+          variant.addVideo(3, (stream) => {
+            stream.size(30, 30);
+          });
         });
       });
 
@@ -3544,6 +3509,37 @@ describe('Player', () => {
       expect(tracks[0].id).toBe(2);
     });
 
+    it('removes based on frameRate', async () => {
+      manifest = shaka.test.ManifestGenerator.generate((manifest) => {
+        manifest.addVariant(0, (variant) => {
+          variant.addVideo(1, (stream) => {
+            stream.frameRate = 15;
+          });
+        });
+
+        manifest.addVariant(1, (variant) => {
+          variant.addVideo(2, (stream) => {
+            stream.frameRate = 30;
+          });
+        });
+
+        manifest.addVariant(2, (variant) => {
+          variant.addVideo(3, (stream) => {
+            stream.frameRate = 60;
+          });
+        });
+      });
+
+      await player.load(fakeManifestUri, 0, fakeMimeType);
+      expect(player.getVariantTracks().length).toBe(3);
+
+      player.configure({restrictions: {minFrameRate: 20, maxFrameRate: 40}});
+
+      const tracks = player.getVariantTracks();
+      expect(tracks.length).toBe(1);
+      expect(tracks[0].id).toBe(1);
+    });
+
     it('removes the whole variant if one stream is restricted', async () => {
       manifest = shaka.test.ManifestGenerator.generate((manifest) => {
         manifest.addVariant(0, (variant) => {
@@ -3557,7 +3553,7 @@ describe('Player', () => {
           variant.addVideo(3, (stream) => {
             stream.size(190, 190);
           });
-          variant.addAudio(4);
+          variant.addAudio(2);
         });
       });
 
@@ -3620,18 +3616,21 @@ describe('Player', () => {
           variant.bandwidth = 100;
           variant.addVideo(0, (stream) => {
             stream.codecs = 'good';
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(1, (variant) => {
           variant.bandwidth = 200;
           variant.addVideo(1, (stream) => {
             stream.codecs = 'good';
+            stream.size(20, 20);
           });
         });
         manifest.addVariant(2, (variant) => {
           variant.bandwidth = 300;
           variant.addVideo(2, (stream) => {
             stream.codecs = 'good';
+            stream.size(30, 30);
           });
         });
 
@@ -3640,18 +3639,21 @@ describe('Player', () => {
           variant.bandwidth = 10000;
           variant.addVideo(3, (stream) => {
             stream.codecs = 'bad';
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(4, (variant) => {
           variant.bandwidth = 20000;
           variant.addVideo(4, (stream) => {
             stream.codecs = 'bad';
+            stream.size(20, 20);
           });
         });
         manifest.addVariant(5, (variant) => {
           variant.bandwidth = 30000;
           variant.addVideo(5, (stream) => {
             stream.codecs = 'bad';
+            stream.size(30, 30);
           });
         });
       });
@@ -3672,10 +3674,13 @@ describe('Player', () => {
         manifest.addVariant(0, (variant) => {
           variant.addVideo(1, (stream) => {
             stream.keyIds = new Set(['abc']);
+            stream.size(10, 10);
           });
         });
         manifest.addVariant(2, (variant) => {
-          variant.addVideo(3);
+          variant.addVideo(3, (stream) => {
+            stream.size(20, 20);
+          });
         });
       });
 
@@ -3778,19 +3783,25 @@ describe('Player', () => {
     manifest = shaka.test.ManifestGenerator.generate((manifest) => {
       manifest.addVariant(0, (variant) => {
         variant.bandwidth = 100;
-        variant.addVideo(0);
+        variant.addVideo(0, (stream) => {
+          stream.size(10, 10);
+        });
         variant.addAudio(9);
       });
 
       manifest.addVariant(1, (variant) => {
         variant.bandwidth = 200;
-        variant.addVideo(1);
+        variant.addVideo(1, (stream) => {
+          stream.size(20, 20);
+        });
         variant.addExistingStream(9);  // audio
       });
 
       manifest.addVariant(2, (variant) => {
         variant.bandwidth = 300;
-        variant.addVideo(2);
+        variant.addVideo(2, (stream) => {
+          stream.size(30, 30);
+        });
         variant.addExistingStream(9);  // audio
       });
     });
@@ -3859,15 +3870,21 @@ describe('Player', () => {
       manifest = shaka.test.ManifestGenerator.generate((manifest) => {
         manifest.addVariant(0, (variant) => {
           variant.bandwidth = /** @type {?} */(undefined);
-          variant.addVideo(0);
+          variant.addVideo(0, (stream) => {
+            stream.size(10, 10);
+          });
         });
         manifest.addVariant(1, (variant) => {
           variant.bandwidth = NaN;
-          variant.addVideo(1);
+          variant.addVideo(1, (stream) => {
+            stream.size(20, 20);
+          });
         });
         manifest.addVariant(2, (variant) => {
           variant.bandwidth = 0;
-          variant.addVideo(2);
+          variant.addVideo(2, (stream) => {
+            stream.size(30, 30);
+          });
         });
       });
 
@@ -4206,6 +4223,69 @@ describe('Player', () => {
         const thumbnail8 = await player.getThumbnails(5, 80);
         expect(thumbnail8.startTime).toBe(80);
         expect(thumbnail8.duration).toBe(10);
+      });
+    });
+
+    describe('getAllThumbnails', () => {
+      it('returns all thumbnails', async () => {
+        const uris = () => ['thumbnail'];
+        const ref = new shaka.media.SegmentReference(
+            0, 60, uris, 0, null, null, 0, 0, Infinity, [],
+        );
+        const index = new shaka.media.SegmentIndex([ref]);
+
+        manifest = shaka.test.ManifestGenerator.generate((manifest) => {
+          manifest.addVariant(0, (variant) => {
+            variant.addVideo(1);
+          });
+          manifest.addImageStream(5, (stream) => {
+            stream.originalId = 'thumbnail';
+            stream.width = 200;
+            stream.height = 150;
+            stream.mimeType = 'image/jpeg';
+            stream.tilesLayout = '2x3';
+            stream.segmentIndex = index;
+          });
+        });
+
+        await player.load(fakeManifestUri, 0, fakeMimeType);
+
+        expect(player.getImageTracks()[0].width).toBe(100);
+        expect(player.getImageTracks()[0].height).toBe(50);
+        const thumbnails = await player.getAllThumbnails(5);
+        expect(thumbnails.length).toBe(6);
+        expect(thumbnails[0]).toEqual(jasmine.objectContaining({
+          imageHeight: 150,
+          imageWidth: 200,
+          positionX: 0,
+          positionY: 0,
+          width: 100,
+          height: 50,
+        }));
+        expect(thumbnails[1]).toEqual(jasmine.objectContaining({
+          imageHeight: 150,
+          imageWidth: 200,
+          positionX: 100,
+          positionY: 0,
+          width: 100,
+          height: 50,
+        }));
+        expect(thumbnails[2]).toEqual(jasmine.objectContaining({
+          imageHeight: 150,
+          imageWidth: 200,
+          positionX: 0,
+          positionY: 50,
+          width: 100,
+          height: 50,
+        }));
+        expect(thumbnails[5]).toEqual(jasmine.objectContaining({
+          imageHeight: 150,
+          imageWidth: 200,
+          positionX: 100,
+          positionY: 100,
+          width: 100,
+          height: 50,
+        }));
       });
     });
   });
