@@ -167,17 +167,6 @@ class Launcher:
              'browser to connect to it.',
         action='store_true')
     running_commands.add_argument(
-        '--single-run',
-        help='Run the test when browsers capture and exit.',
-        dest='single_run',
-        action='store_true',
-        default=True)
-    running_commands.add_argument(
-        '--no-single-run',
-        help='Do not shut down Karma when tests are complete.',
-        dest='single_run',
-        action='store_false')
-    running_commands.add_argument(
         '--random',
         help='Run the tests in a random order. This can be used with --seed '
              'to control the random order. If used without --seed, a seed '
@@ -190,7 +179,8 @@ class Launcher:
         type=int)
     running_commands.add_argument(
         '--filter',
-        help='Specify a regular expression to limit which tests run.',
+        help='Specify a regular expression to limit which tests run. Or, use'
+             '`--filter offline` to filter to all offline playback tests.',
         type=str,
         dest='filter')
     running_commands.add_argument(
@@ -397,7 +387,6 @@ class Launcher:
       'drm',
       'exclude_browsers',
       'external',
-      'filter',
       'grid_address',
       'grid_config',
       'hostname',
@@ -412,7 +401,6 @@ class Launcher:
       'reporters',
       'report_slower_than',
       'seed',
-      'single_run',
       'spec_hide_passed',
       'test_custom_asset',
       'test_custom_license_server',
@@ -427,6 +415,13 @@ class Launcher:
       value = getattr(self.parsed_args, name, None)
       if value is not None:
         self.karma_config[name] = value
+
+    filterValue = getattr(self.parsed_args, 'filter', None)
+    if filterValue is not None:
+      if str(filterValue) == 'offline':
+        self.karma_config['filter'] = '(Offline|Storage|DownloadProgress|ManifestConverter|Indexeddb)'
+      else:
+        self.karma_config['filter'] = filterValue
 
     if not self.parsed_args.capture_timeout:
       # The default for capture_timeout depends on whether or not we are using

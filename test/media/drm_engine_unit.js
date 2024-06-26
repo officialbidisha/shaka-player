@@ -163,6 +163,22 @@ describe('DrmEngine', () => {
     });
   });
 
+
+  describe('createOrLoad', () => {
+    it('does not hang when given empty init data for offline', async () => {
+      tweakDrmInfos((drmInfos) => {
+        // An empty uint8array, like we make for fairplay content.
+        drmInfos[0].initData = [
+          {initData: new Uint8Array(0), initDataType: 'cenc', keyId: null},
+        ];
+      });
+      await drmEngine.initForStorage(
+          manifest.variants, /* usePersistentLicenses= */ false);
+      await drmEngine.createOrLoad();
+      expect(drmEngine.initialized()).toBe(true);
+    }, /* timeout= */ 1000);
+  });
+
   describe('init', () => {
     it('stops on first available key system', async () => {
       // Accept both drm.abc and drm.def.  Only one can be chosen.
@@ -555,6 +571,7 @@ describe('DrmEngine', () => {
         individualizationServer: '',
         distinctiveIdentifierRequired: true,
         persistentStateRequired: true,
+        headers: {},
       };
       drmEngine.configure(config);
 
@@ -573,9 +590,11 @@ describe('DrmEngine', () => {
           sessionTypes: ['persistent-license'],
           initDataType: 'cenc',
           audio: containing({
+            encryptionScheme: '',
             robustness: 'good',
           }),
           video: containing({
+            encryptionScheme: '',
             robustness: 'really_really_ridiculously_good',
           }),
         }),
@@ -605,6 +624,7 @@ describe('DrmEngine', () => {
         drmInfos[0].persistentStateRequired = true;
         drmInfos[0].audioRobustness = 'good';
         drmInfos[0].videoRobustness = 'really_really_ridiculously_good';
+        drmInfos[0].encryptionScheme = 'bad';
       });
 
       config.advanced['drm.abc'] = {
@@ -616,6 +636,7 @@ describe('DrmEngine', () => {
         individualizationServer: '',
         distinctiveIdentifierRequired: false,
         persistentStateRequired: false,
+        headers: {},
       };
       drmEngine.configure(config);
 
@@ -631,9 +652,11 @@ describe('DrmEngine', () => {
         keySystemConfiguration: containing({
           keySystem: 'drm.abc',
           audio: containing({
+            encryptionScheme: 'bad',
             robustness: 'good',
           }),
           video: containing({
+            encryptionScheme: 'bad',
             robustness: 'really_really_ridiculously_good',
           }),
           distinctiveIdentifier: 'required',
@@ -750,6 +773,19 @@ describe('DrmEngine', () => {
         });
 
         setDecodingInfoSpy(['drm.abc']);
+
+        for (const variant of manifest.variants) {
+          for (const stream of [variant.video, variant.audio]) {
+            if (stream) {
+              stream.mimeType = stream.mimeType.replace('/foo', '/mp4');
+              const newFullMimeTypes = new Set();
+              for (const fullMimeType of stream.fullMimeTypes) {
+                newFullMimeTypes.add(fullMimeType.replace('/foo', '/mp4'));
+              }
+              stream.fullMimeTypes = newFullMimeTypes;
+            }
+          }
+        }
 
         const variants = manifest.variants;
         variants[0].video.mimeType = 'video/mp2t';
@@ -2189,44 +2225,6 @@ describe('DrmEngine', () => {
     });
   });  // describe('destroy')
 
-  describe('isPlayReadyKeySystem', () => {
-    it('should return true for MS & Chromecast PlayReady', () => {
-      expect(shaka.media.DrmEngine.isPlayReadyKeySystem(
-          'com.microsoft.playready')).toBe(true);
-      expect(shaka.media.DrmEngine.isPlayReadyKeySystem(
-          'com.microsoft.playready.anything')).toBe(true);
-      expect(shaka.media.DrmEngine.isPlayReadyKeySystem(
-          'com.chromecast.playready')).toBe(true);
-    });
-
-    it('should return false for non-PlayReady key systems', () => {
-      expect(shaka.media.DrmEngine.isPlayReadyKeySystem(
-          'com.widevine.alpha')).toBe(false);
-      expect(shaka.media.DrmEngine.isPlayReadyKeySystem(
-          'com.abc.playready')).toBe(false);
-    });
-  });
-
-  describe('isFairPlayKeySystem', () => {
-    it('should return true for FairPlay', () => {
-      expect(shaka.media.DrmEngine.isFairPlayKeySystem(
-          'com.apple.fps')).toBe(true);
-      expect(shaka.media.DrmEngine.isFairPlayKeySystem(
-          'com.apple.fps.1_0')).toBe(true);
-      expect(shaka.media.DrmEngine.isFairPlayKeySystem(
-          'com.apple.fps.2_0')).toBe(true);
-      expect(shaka.media.DrmEngine.isFairPlayKeySystem(
-          'com.apple.fps.3_0')).toBe(true);
-    });
-
-    it('should return false for non-FairPlay key systems', () => {
-      expect(shaka.media.DrmEngine.isFairPlayKeySystem(
-          'com.widevine.alpha')).toBe(false);
-      expect(shaka.media.DrmEngine.isFairPlayKeySystem(
-          'com.abc.playready')).toBe(false);
-    });
-  });
-
   describe('getDrmInfo', () => {
     it('includes correct info', async () => {
       // Leave only one drmInfo
@@ -2258,6 +2256,7 @@ describe('DrmEngine', () => {
         sessionType: '',
         individualizationServer: '',
         persistentStateRequired: true,
+        headers: {},
       };
       drmEngine.configure(config);
 
@@ -2267,6 +2266,7 @@ describe('DrmEngine', () => {
       const drmInfo = drmEngine.getDrmInfo();
       expect(drmInfo).toEqual({
         keySystem: 'drm.abc',
+        encryptionScheme: '',
         licenseServerUri: 'http://abc.drm/license',
         distinctiveIdentifierRequired: true,
         persistentStateRequired: true,
@@ -2763,6 +2763,7 @@ describe('DrmEngine', () => {
       individualizationServer: '',
       sessionType: '',
       videoRobustness: '',
+      headers: {},
     };
   }
 

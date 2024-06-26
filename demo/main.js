@@ -60,6 +60,9 @@ shakaDemo.Main = class {
     this.trickPlayControlsEnabled_ = false;
 
     /** @private {boolean} */
+    this.customContextMenu_ = false;
+
+    /** @private {boolean} */
     this.nativeControlsEnabled_ = false;
 
     /** @private {shaka.extern.SupportType} */
@@ -360,6 +363,7 @@ shakaDemo.Main = class {
     const ui = video['ui'];
 
     const uiConfig = ui.getConfiguration();
+    uiConfig.customContextMenu = this.customContextMenu_;
     // Remove any trick play configurations from a previous config.
     uiConfig.addSeekBar = true;
     uiConfig.controlPanelElements =
@@ -389,6 +393,21 @@ shakaDemo.Main = class {
     const video = /** @type {!HTMLVideoElement} */ (this.video_);
     const ui = video['ui'];
     this.player_ = ui.getControls().getPlayer();
+
+    // Change the poster by the APIC ID3 if the stream is audio only.
+    this.player_.addEventListener('metadata', (event) => {
+      if (!this.player_.isAudioOnly()) {
+        return;
+      }
+      const payload = event['payload'];
+      if (payload &&
+          payload['key'] == 'APIC' && payload['mimeType'] == '-->') {
+        const url = payload['data'];
+        if (url && url != video.poster) {
+          video.poster = url;
+        }
+      }
+    });
 
     if (!this.noInput_) {
       // Don't add the close button if in noInput mode; it doesn't make much
@@ -738,9 +757,19 @@ shakaDemo.Main = class {
     if (asset.features.includes(shakaAssets.Feature.DOLBY_VISION_3D)) {
       mimeTypes.push('video/mp4; codecs="dvh1.20.01"');
     }
-    const hasSupportedMimeType = mimeTypes.some((type) => {
+    let hasSupportedMimeType = mimeTypes.some((type) => {
       return this.support_.media[type];
     });
+    if (!hasSupportedMimeType &&
+        !(window.ManagedMediaSource || window.MediaSource) &&
+        !!navigator.vendor && navigator.vendor.includes('Apple')) {
+      if (mimeTypes.includes('video/mp4')) {
+        hasSupportedMimeType = true;
+      }
+      if (mimeTypes.includes('video/mp2t')) {
+        hasSupportedMimeType = true;
+      }
+    }
     if (!hasSupportedMimeType) {
       return 'Your browser does not support the required video format.';
     }
@@ -767,6 +796,27 @@ shakaDemo.Main = class {
    */
   getTrickPlayControlsEnabled() {
     return this.trickPlayControlsEnabled_;
+  }
+
+  /**
+   * Enable or disable the UI's custom context menu.
+   *
+   * @param {boolean} enabled
+   */
+  setCustomContextMenuEnabled(enabled) {
+    this.customContextMenu_ = enabled;
+    // Configure the UI, to add or remove the controls.
+    this.configureUI_();
+    this.remakeHash();
+  }
+
+  /**
+   * Get if the UI's custom context menu is enabled.
+   *
+   * @return {boolean} enabled
+   */
+  getCustomContextMenuEnabled() {
+    return this.customContextMenu_;
   }
 
   /**
@@ -905,6 +955,16 @@ shakaDemo.Main = class {
       this.configure('abr.enabled', false);
     }
 
+    if ('preferredVideoCodecs' in params) {
+      this.configure('preferredVideoCodecs',
+          params['preferredVideoCodecs'].split(','));
+    }
+
+    if ('preferredAudioCodecs' in params) {
+      this.configure('preferredAudioCodecs',
+          params['preferredAudioCodecs'].split(','));
+    }
+
     // Add compiled/uncompiled links.
     this.makeVersionLinks_();
 
@@ -914,6 +974,11 @@ shakaDemo.Main = class {
     // Enable trick play.
     if ('trickplay' in params) {
       this.trickPlayControlsEnabled_ = true;
+      this.configureUI_();
+    }
+
+    if ('customContextMenu' in params) {
+      this.customContextMenu_ = true;
       this.configureUI_();
     }
 
@@ -1211,6 +1276,40 @@ shakaDemo.Main = class {
   /**
    * @param {ShakaDemoAssetInfo} asset
    */
+  async preloadAsset(asset) {
+    await this.drmConfiguration_(asset);
+    const manifestUri = await this.getManifestUri_(asset);
+    asset.preloadManager = await this.player_.preload(manifestUri);
+  }
+
+  /**
+   * @param {ShakaDemoAssetInfo} asset
+   * @return {!Promise.<string>}
+   * @private
+   */
+  async getManifestUri_(asset) {
+    let manifestUri = asset.manifestUri;
+    // If we have an offline copy, use that.  If the offlineUri field is null,
+    // we are still downloading it.
+    if (asset.storedContent && asset.storedContent.offlineUri) {
+      manifestUri = asset.storedContent.offlineUri;
+    }
+    // If it's a server side dai asset, request ad-containing manifest
+    // from the ad manager.
+    if (asset.imaAssetKey || (asset.imaContentSrcId && asset.imaVideoId)) {
+      manifestUri = await this.getManifestUriFromAdManager_(asset);
+    }
+    // If it's a MediaTailor asset, request ad-containing manifest
+    // from the ad manager.
+    if (asset.mediaTailorUrl) {
+      manifestUri = await this.getManifestUriFromMediaTailorAdManager_(asset);
+    }
+    return manifestUri;
+  }
+
+  /**
+   * @param {ShakaDemoAssetInfo} asset
+   */
   async loadAsset(asset) {
     try {
       this.selectedAsset = asset;
@@ -1235,30 +1334,31 @@ shakaDemo.Main = class {
 
       await this.drmConfiguration_(asset);
       this.controls_.getCastProxy().setAppData({'asset': asset});
+      const ui = this.video_['ui'];
+      if (asset.extraUiConfig) {
+        ui.configure(asset.extraUiConfig);
+      } else {
+        const uiConfig = {
+          displayInVrMode: false,
+        };
+        ui.configure(uiConfig);
+      }
 
       // Finally, the asset can be loaded.
-      let manifestUri = asset.manifestUri;
-      // If we have an offline copy, use that.  If the offlineUri field is null,
-      // we are still downloading it.
-      if (asset.storedContent && asset.storedContent.offlineUri) {
-        manifestUri = asset.storedContent.offlineUri;
+      if (asset.preloadManager) {
+        const preloadManager = asset.preloadManager;
+        asset.preloadManager = null;
+        await this.player_.load(preloadManager);
+      } else {
+        const manifestUri = await this.getManifestUri_(asset);
+        await this.player_.load(
+            manifestUri,
+            /* startTime= */ null,
+            asset.mimeType || undefined);
       }
-      // If it's a server side dai asset, request ad-containing manifest
-      // from the ad manager.
-      if (asset.imaAssetKey || (asset.imaContentSrcId && asset.imaVideoId)) {
-        manifestUri = await this.getManifestUriFromAdManager_(asset);
-      }
-      // If it's a MediaTailor asset, request ad-containing manifest
-      // from the ad manager.
-      if (asset.mediaTailorUrl) {
-        manifestUri = await this.getManifestUriFromMediaTailorAdManager_(asset);
-      }
-      await this.player_.load(
-          manifestUri,
-          /* startTime= */ null,
-          asset.mimeType || undefined);
 
-      if (this.player_.isAudioOnly()) {
+      if (this.player_.isAudioOnly() &&
+          this.video_.poster == shakaDemo.Main.mainPoster_) {
         this.video_.poster = shakaDemo.Main.audioOnlyPoster_;
       }
 
@@ -1422,6 +1522,14 @@ shakaDemo.Main = class {
     }
     params.push('uilang=' + this.getUILocale());
 
+    for (const key of ['preferredVideoCodecs', 'preferredAudioCodecs']) {
+      const array = /** @type {!Array.<string>} */(
+        this.getCurrentConfigValue(key));
+      if (array.length) {
+        params.push(key + '=' + array.join(','));
+      }
+    }
+
     if (this.selectedAsset) {
       const isDefault = shakaAssets.testAssets.includes(this.selectedAsset);
       params.push('asset=' + this.selectedAsset.manifestUri);
@@ -1475,6 +1583,10 @@ shakaDemo.Main = class {
 
     if (this.trickPlayControlsEnabled_) {
       params.push('trickplay');
+    }
+
+    if (this.customContextMenu_) {
+      params.push('customContextMenu');
     }
 
     // MAX_LOG_LEVEL is the default starting log level. Only save the log level
@@ -1841,6 +1953,7 @@ shakaDemo.Main = class {
       serverCertificate: new Uint8Array(0),
       serverCertificateUri: '',
       individualizationServer: '',
+      headers: {},
     };
   }
 };
@@ -1851,7 +1964,6 @@ shakaDemo.Main.commonDrmSystems = [
   'com.widevine.alpha',
   'com.microsoft.playready',
   'com.apple.fps',
-  'com.adobe.primetime',
   'org.w3.clearkey',
 ];
 

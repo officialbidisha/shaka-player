@@ -64,6 +64,10 @@ shaka.ui.TextSelection = class extends shaka.ui.SettingsMenu {
           this.updateTextLanguages_();
         });
 
+    this.eventManager.listen(this.player, 'loading', () => {
+      this.onTracksChanged_();
+    });
+
     this.eventManager.listen(this.player, 'texttrackvisibility', () => {
       this.onCaptionStateChange_();
       this.updateTextLanguages_();
@@ -135,7 +139,7 @@ shaka.ui.TextSelection = class extends shaka.ui.SettingsMenu {
         this.player.isTextTrackVisible(),
         this.currentSelection,
         this.localization,
-        this.controls.getConfig().trackLabelFormat,
+        this.controls.getConfig().textTrackLabelFormat,
         this.controls.getConfig().showAudioChannelCountVariants);
 
     // Add the Off button

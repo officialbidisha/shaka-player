@@ -47,7 +47,7 @@ describe('TtmlTextParser', () => {
             startTime: 62.03,
             endTime: 62.05,
             nestedCues: [{
-              payload: 'A B C',
+              payload: ' A B C ',
               startTime: 62.03,
               endTime: 62.05,
             }],
@@ -90,7 +90,7 @@ describe('TtmlTextParser', () => {
             startTime: 62.03,
             endTime: 62.05,
             nestedCues: [{
-              payload: 'A B C',
+              payload: ' A B C ',
               startTime: 62.03,
               endTime: 62.05,
             }],
@@ -356,6 +356,18 @@ describe('TtmlTextParser', () => {
         '</div></body></tt>',
         {periodStart: 0, segmentStart: 60, segmentEnd: 3730, vttOffset: 0},
         {startTime: 62.05, endTime: 3723.2});
+  });
+
+  it('supports colon formatted time with 0 or 1 dp', () => {
+    verifyHelper(
+        [
+          {startTime: 62, endTime: 3723.2, payload: 'Test'},
+        ],
+        '<tt><body><div>' +
+        '<p begin="01:02" end="01:02:03.2">Test</p>' +
+        '</div></body></tt>',
+        {periodStart: 0, segmentStart: 60, segmentEnd: 3730, vttOffset: 0},
+        {startTime: 62, endTime: 3723.2});
   });
 
   it('accounts for offset', () => {
@@ -638,8 +650,8 @@ describe('TtmlTextParser', () => {
             id: 'subtitleArea',
             viewportAnchorX: 50,
             viewportAnchorY: 16,
-            width: 100,
-            height: 100,
+            width: 50,
+            height: 84,
           },
           startTime: 62.05,
           endTime: 3723.2,
@@ -666,8 +678,8 @@ describe('TtmlTextParser', () => {
           region: {
             viewportAnchorX: 50,
             viewportAnchorY: 16,
-            width: 100,
-            height: 100,
+            width: 50,
+            height: 84,
           },
           startTime: 62.05,
           endTime: 3723.2,
@@ -694,8 +706,8 @@ describe('TtmlTextParser', () => {
           region: {
             viewportAnchorX: 50,
             viewportAnchorY: 16,
-            width: 100,
-            height: 100,
+            width: 50,
+            height: 84,
           },
           startTime: 62.05,
           endTime: 3723.2,
@@ -872,8 +884,8 @@ describe('TtmlTextParser', () => {
             viewportAnchorY: 16,
             regionAnchorX: 0,
             regionAnchorY: 0,
-            width: 100,
-            height: 100,
+            width: 50,
+            height: 84,
             heightUnits: CueRegion.units.PERCENTAGE,
             widthUnits: CueRegion.units.PERCENTAGE,
             viewportAnchorUnits: CueRegion.units.PERCENTAGE,
@@ -945,8 +957,8 @@ describe('TtmlTextParser', () => {
             id: 'subtitleArea',
             viewportAnchorX: 50,
             viewportAnchorY: 16,
-            width: 100,
-            height: 100,
+            width: 50,
+            height: 84,
           },
           startTime: 62.05,
           endTime: 3723.2,
@@ -973,8 +985,8 @@ describe('TtmlTextParser', () => {
           region: {
             viewportAnchorX: 50,
             viewportAnchorY: 16,
-            width: 100,
-            height: 100,
+            width: 50,
+            height: 84,
           },
           startTime: 62.05,
           endTime: 3723.2,
@@ -1001,8 +1013,8 @@ describe('TtmlTextParser', () => {
           region: {
             viewportAnchorX: 50,
             viewportAnchorY: 16,
-            width: 100,
-            height: 100,
+            width: 50,
+            height: 84,
           },
           startTime: 62.05,
           endTime: 3723.2,
@@ -1032,8 +1044,8 @@ describe('TtmlTextParser', () => {
             id: 'subtitleArea',
             viewportAnchorX: 12.2,
             viewportAnchorY: 50.005,
-            width: 100,
-            height: 100,
+            width: 87.8,
+            height: 49.995,
           },
           startTime: 62.05,
           endTime: 3723.2,
@@ -2055,7 +2067,7 @@ describe('TtmlTextParser', () => {
               {
                 startTime: 0,
                 endTime: 60,
-                payload: 'A',
+                payload: ' A',
                 fontSize: '16px',
               },
               {
@@ -2067,7 +2079,7 @@ describe('TtmlTextParser', () => {
               {
                 startTime: 0,
                 endTime: 60,
-                payload: 'B',
+                payload: 'B ',
                 fontSize: '16px',
               },
             ],

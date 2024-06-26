@@ -82,13 +82,19 @@ shakaDemo.Config = class {
 
     this.addMetaSection_();
     this.addLanguageSection_();
+    this.addCodecPreferenceSection_();
     this.addAbrSection_();
     this.addOfflineSection_();
     this.addDrmSection_();
     this.addStreamingSection_();
     this.addMediaSourceSection_();
     this.addManifestSection_();
+    this.addDashManifestSection_();
+    this.addHlsManifestSection_();
+    this.addMssManifestSection_();
+    this.addRetrySection_('manifest', 'Manifest Retry Parameters');
     this.addRetrictionsSection_('', 'Restrictions');
+    this.addTextDisplayerSection_();
     this.addCmcdSection_();
     this.addCmsdSection_();
     this.addLcevcSection_();
@@ -182,6 +188,25 @@ shakaDemo.Config = class {
   addManifestSection_() {
     const docLink = this.resolveExternLink_('.ManifestConfiguration');
     this.addSection_('Manifest', docLink)
+        .addNumberInput_('Availability Window Override',
+            'manifest.availabilityWindowOverride',
+            /* canBeDecimal= */ true,
+            /* canBeZero= */ false,
+            /* canBeUnset= */ true)
+        .addNumberInput_('Default Presentation Delay',
+            'manifest.defaultPresentationDelay')
+        .addBoolInput_('Disable Audio', 'manifest.disableAudio')
+        .addBoolInput_('Disable Video', 'manifest.disableVideo')
+        .addBoolInput_('Disable Text', 'manifest.disableText')
+        .addBoolInput_('Disable Thumbnails', 'manifest.disableThumbnails')
+        .addBoolInput_('Enable segment-relative VTT Timing',
+            'manifest.segmentRelativeVttTiming');
+  }
+
+  /** @private */
+  addDashManifestSection_() {
+    const docLink = this.resolveExternLink_('.ManifestConfiguration');
+    this.addSection_('DASH Manifest', docLink)
         .addBoolInput_('Ignore DASH DRM Info', 'manifest.dash.ignoreDrmInfo')
         .addBoolInput_('Auto-Correct DASH Drift',
             'manifest.dash.autoCorrectDrift')
@@ -197,6 +222,29 @@ shakaDemo.Config = class {
             'manifest.dash.ignoreMaxSegmentDuration')
         .addBoolInput_('Allow DASH multi type variants',
             'manifest.dash.multiTypeVariantsAllowed')
+        .addTextInput_('Clock Sync URI', 'manifest.dash.clockSyncUri')
+        .addBoolInput_('Enable Audio Groups', 'manifest.dash.enableAudioGroups')
+        .addBoolInput_('Ignore Min Buffer Time',
+            'manifest.dash.ignoreMinBufferTime')
+        .addNumberInput_('Initial Segment Limit',
+            'manifest.dash.initialSegmentLimit',
+            /* canBeDecimal= */ false,
+            /* canBeZero= */ false,
+            /* canBeUnset= */ true)
+        .addBoolInput_('Enable DASH sequence mode',
+            'manifest.dash.sequenceMode')
+        .addBoolInput_('Use stream once in period flattening',
+            'manifest.dash.useStreamOnceInPeriodFlattening')
+        .addNumberInput_('override the Update period of dash manifest',
+            'manifest.dash.updatePeriod')
+        .addBoolInput_('Enable fast switching',
+            'manifest.dash.enableFastSwitching');
+  }
+
+  /** @private */
+  addHlsManifestSection_() {
+    const docLink = this.resolveExternLink_('.ManifestConfiguration');
+    this.addSection_('HLS Manifest', docLink)
         .addBoolInput_('Ignore HLS Text Stream Failures',
             'manifest.hls.ignoreTextStreamFailures')
         .addBoolInput_('Ignore HLS Image Stream Failures',
@@ -216,35 +264,17 @@ shakaDemo.Config = class {
             'manifest.hls.ignoreManifestTimestampsInSegmentsMode')
         .addBoolInput_('Disable codec guessing',
             'manifest.hls.disableCodecGuessing')
+        .addBoolInput_('Disable closed caption detection',
+            'manifest.hls.disableClosedCaptionsDetection')
         .addBoolInput_('Allow LL-HLS byterange optimization',
-            'manifest.hls.allowLowLatencyByteRangeOptimization')
-        .addNumberInput_('Availability Window Override',
-            'manifest.availabilityWindowOverride',
-            /* canBeDecimal= */ true,
-            /* canBeZero= */ false,
-            /* canBeUnset= */ true)
-        .addTextInput_('Clock Sync URI', 'manifest.dash.clockSyncUri')
-        .addNumberInput_('Default Presentation Delay',
-            'manifest.defaultPresentationDelay')
-        .addBoolInput_('Enable Audio Groups', 'manifest.dash.enableAudioGroups')
-        .addBoolInput_('Ignore Min Buffer Time',
-            'manifest.dash.ignoreMinBufferTime')
-        .addNumberInput_('Initial Segment Limit',
-            'manifest.dash.initialSegmentLimit',
-            /* canBeDecimal= */ false,
-            /* canBeZero= */ false,
-            /* canBeUnset= */ true)
-        .addBoolInput_('Enable DASH sequence mode',
-            'manifest.dash.sequenceMode')
-        .addBoolInput_('Disable Audio', 'manifest.disableAudio')
-        .addBoolInput_('Disable Video', 'manifest.disableVideo')
-        .addBoolInput_('Disable Text', 'manifest.disableText')
-        .addBoolInput_('Disable Thumbnails', 'manifest.disableThumbnails')
-        .addBoolInput_('Enable segment-relative VTT Timing',
-            'manifest.segmentRelativeVttTiming')
-        .addBoolInput_('Enable MSS sequence mode', 'manifest.mss.sequenceMode');
+            'manifest.hls.allowLowLatencyByteRangeOptimization');
+  }
 
-    this.addRetrySection_('manifest', 'Manifest Retry Parameters');
+  /** @private */
+  addMssManifestSection_() {
+    const docLink = this.resolveExternLink_('.ManifestConfiguration');
+    this.addSection_('MSS Manifest', docLink)
+        .addBoolInput_('Enable MSS sequence mode', 'manifest.mss.sequenceMode');
   }
 
   /** @private */
@@ -254,7 +284,7 @@ shakaDemo.Config = class {
         .addBoolInput_('Enabled', 'abr.enabled')
         .addBoolInput_('Use Network Information API',
             'abr.useNetworkInformation')
-        .addNumberInput_('Default Bandwidth EstimatZ',
+        .addNumberInput_('Default Bandwidth Estimate',
             'abr.defaultBandwidthEstimate')
         .addNumberInput_('Bandwidth Downgrade Target',
             'abr.bandwidthDowngradeTarget',
@@ -278,8 +308,20 @@ shakaDemo.Config = class {
             'abr.clearBufferSwitch')
         .addNumberInput_('Safe margin on abr switch rendition',
             'abr.safeMarginSwitch',
+            /* canBeDecimal= */ true)
+        .addNumberInput_('Milliseconds to consider a request cached',
+            'abr.cacheLoadThreshold',
             /* canBeDecimal= */ true);
     this.addRetrictionsSection_('abr', 'Adaptation Restrictions');
+  }
+
+  /** @private */
+  addTextDisplayerSection_() {
+    const docLink = this.resolveExternLink_('.TextDisplayerConfiguration');
+    this.addSection_('Text displayer', docLink)
+        .addNumberInput_('Captions update period',
+            'textDisplayer.captionsUpdatePeriod',
+            /* canBeDecimal= */ true);
   }
 
   /** @private */
@@ -289,6 +331,8 @@ shakaDemo.Config = class {
         .addBoolInput_('Enabled', 'cmcd.enabled')
         .addTextInput_('Session ID', 'cmcd.sessionId')
         .addTextInput_('Content ID', 'cmcd.contentId')
+        .addNumberInput_('RTP safety Factor', 'cmcd.rtpSafetyFactor',
+            /* canBeDecimal= */ true)
         .addBoolInput_('Use Headers', 'cmcd.useHeaders');
   }
 
@@ -321,7 +365,11 @@ shakaDemo.Config = class {
     const docLink = this.resolveExternLink_('.AdsConfiguration');
     this.addSection_('Ads', docLink)
         .addBoolInput_('Custom playhead tracker',
-            'ads.customPlayheadTracker');
+            'ads.customPlayheadTracker')
+        .addBoolInput_('Skip play detection',
+            'ads.skipPlayDetection')
+        .addBoolInput_('Supports multiple media elements',
+            'ads.supportsMultipleMediaElements');
   }
 
   /**
@@ -342,7 +390,9 @@ shakaDemo.Config = class {
         .addNumberInput_('Min Framerate', prefix + 'minFrameRate')
         .addNumberInput_('Max Framerate', prefix + 'maxFrameRate')
         .addNumberInput_('Min Bandwidth', prefix + 'minBandwidth')
-        .addNumberInput_('Max Bandwidth', prefix + 'maxBandwidth');
+        .addNumberInput_('Max Bandwidth', prefix + 'maxBandwidth')
+        .addNumberInput_('Min Channels Count', prefix + 'minChannelsCount')
+        .addNumberInput_('Max Channels Count', prefix + 'maxChannelsCount');
   }
 
   /**
@@ -396,6 +446,8 @@ shakaDemo.Config = class {
             /* canBeDecimal= */ true)
         .addNumberInput_('Buffer Behind', 'streaming.bufferBehind',
             /* canBeDecimal= */ true)
+        .addNumberInput_('Eviction Goal', 'streaming.evictionGoal',
+            /* canBeDecimal= */ true)
         .addNumberInput_('Safe Seek Offset', 'streaming.safeSeekOffset',
             /* canBeDecimal= */ true)
         .addNumberInput_('Stall Threshold', 'streaming.stallThreshold',
@@ -407,6 +459,7 @@ shakaDemo.Config = class {
             /* canBeDecimal= */ true)
         .addBoolInput_('Low Latency Mode', 'streaming.lowLatencyMode')
         .addBoolInput_('Auto Low Latency Mode', 'streaming.autoLowLatencyMode')
+        .addBoolInput_('Force HTTP', 'streaming.forceHTTP')
         .addBoolInput_('Force HTTPS', 'streaming.forceHTTPS')
         .addBoolInput_('Prefer native HLS playback when available',
             'streaming.preferNativeHls')
@@ -422,29 +475,37 @@ shakaDemo.Config = class {
         .addBoolInput_('Parse PRFT box',
             'streaming.parsePrftBox')
         .addNumberInput_('Segment Prefetch Limit',
-            'streaming.segmentPrefetchLimit')
-        .addBoolInput_('Live Sync', 'streaming.liveSync')
-        .addNumberInput_('Max latency for live sync',
-            'streaming.liveSyncMaxLatency',
-            /* canBeDecimal= */ true,
-            /* canBeZero= */ true)
-        .addNumberInput_('Playback rate for live sync',
-            'streaming.liveSyncPlaybackRate',
-            /* canBeDecimal= */ true,
-            /* canBeZero= */ false)
-        .addNumberInput_('Min latency for live sync',
-            'streaming.liveSyncMinLatency',
-            /* canBeDecimal= */ true,
-            /* canBeZero= */ true)
-        .addNumberInput_('Min playback rate for live sync',
-            'streaming.liveSyncMinPlaybackRate',
-            /* canBeDecimal= */ true,
-            /* canBeZero= */ false)
+            'streaming.segmentPrefetchLimit',
+            /* canBeDecimal= */ false,
+            /* canBeZero= */ true,
+            /* canBeUnset= */ true)
+        .addCustomTextInput_('Prefetch audio languages', (input) => {
+          shakaDemoMain.configure(
+              'streaming.prefetchAudioLanguages',
+              input.value.split(',').filter(Boolean));
+        })
+        .addBoolInput_('Disable Audio Prefetch',
+            'streaming.disableAudioPrefetch')
+        .addBoolInput_('Disable Text Prefetch',
+            'streaming.disableTextPrefetch')
+        .addBoolInput_('Disable Video Prefetch',
+            'streaming.disableVideoPrefetch')
         .addBoolInput_('Allow Media Source recoveries',
             'streaming.allowMediaSourceRecoveries')
         .addNumberInput_('Minimum time between recoveries',
-            'streaming.minTimeBetweenRecoveries');
-
+            'streaming.minTimeBetweenRecoveries')
+        .addBoolInput_('VOD Dynamic Playback Rate Buffer Control',
+            'streaming.vodDynamicPlaybackRate')
+        .addNumberInput_('VOD Dynamic Playback Rate Low Buffer Rate',
+            'streaming.vodDynamicPlaybackRateLowBufferRate',
+            /* canBeDecimal= */ true)
+        .addNumberInput_('VOD Dynamic Playback Rate Buffer Ratio',
+            'streaming.vodDynamicPlaybackRateBufferRatio',
+            /* canBeDecimal= */ true)
+        .addBoolInput_('Infinite Live Stream Duration',
+            'streaming.infiniteLiveStreamDuration')
+        .addBoolInput_('Clear decodingInfo cache on unload',
+            'streaming.clearDecodingCache');
     if (!shakaDemoMain.getNativeControlsEnabled()) {
       this.addBoolInput_('Always Stream Text', 'streaming.alwaysStreamText');
     } else {
@@ -492,9 +553,62 @@ shakaDemo.Config = class {
         .addBoolInput_('Ignore Text Stream Failures',
             'streaming.ignoreTextStreamFailures')
         .addBoolInput_('Stall Detector Enabled', 'streaming.stallEnabled')
-        .addBoolInput_('Use native HLS on Safari',
-            'streaming.useNativeHlsOnSafari');
+        .addBoolInput_('Use native HLS on Safari (Clear)',
+            'streaming.useNativeHlsOnSafari')
+        .addBoolInput_('Use native HLS for FairPlay',
+            'streaming.useNativeHlsForFairPlay')
+        .addNumberInput_('Time window at end to preload next URL',
+            'streaming.preloadNextUrlWindow',
+            /* canBeDecimal= */ true,
+            /* canBeZero= */ true)
+        .addNumberInput_('Load timeout for src=',
+            'streaming.loadTimeout',
+            /* canBeDecimal= */ true)
+        .addBoolInput_('Don\'t choose codecs',
+            'streaming.dontChooseCodecs')
+        .addBoolInput_('Should fix timestampOffset',
+            'streaming.shouldFixTimestampOffset');
     this.addRetrySection_('streaming', 'Streaming Retry Parameters');
+    this.addLiveSyncSection_();
+  }
+
+  /** @private */
+  addLiveSyncSection_() {
+    const docLink = this.resolveExternLink_('.LiveSyncConfiguration');
+    this.addSection_('Streaming Live Sync', docLink);
+    this.addBoolInput_('Live Sync', 'streaming.liveSync.enabled')
+        .addNumberInput_('Target latency',
+            'streaming.liveSync.targetLatency',
+            /* canBeDecimal= */ true,
+            /* canBeZero= */ true)
+        .addNumberInput_('Target latency tolerance',
+            'streaming.liveSync.targetLatencyTolerance',
+            /* canBeDecimal= */ true,
+            /* canBeZero= */ true)
+        .addNumberInput_('Max playback rate',
+            'streaming.liveSync.maxPlaybackRate',
+            /* canBeDecimal= */ true,
+            /* canBeZero= */ false)
+        .addNumberInput_('Min playback rate',
+            'streaming.liveSync.minPlaybackRate',
+            /* canBeDecimal= */ true)
+        .addBoolInput_('Panic Mode', 'streaming.liveSync.panicMode')
+        .addNumberInput_('Panic Mode Threshold',
+            'streaming.liveSync.panicThreshold')
+        .addBoolInput_('Dynamic Target Latency',
+            'streaming.liveSync.dynamicTargetLatency.enabled')
+        .addNumberInput_('Dynamic Target Latency Stability Threshold',
+            'streaming.liveSync.dynamicTargetLatency.stabilityThreshold')
+        .addNumberInput_('Dynamic Target Latency Rebuffer Increment',
+            'streaming.liveSync.dynamicTargetLatency.rebufferIncrement',
+            /* canBeDecimal= */ true,
+            /* canBeZero= */ true)
+        .addNumberInput_('Dynamic Target Latency Max Attempts',
+            'streaming.liveSync.dynamicTargetLatency.maxAttempts')
+        .addNumberInput_('Dynamic Target Latency Max Latency',
+            'streaming.liveSync.dynamicTargetLatency.maxLatency')
+        .addNumberInput_('Dynamic Target Latency Min Latency',
+            'streaming.liveSync.dynamicTargetLatency.minLatency');
   }
 
   /** @private */
@@ -507,8 +621,6 @@ shakaDemo.Config = class {
 
     const docLink = this.resolveExternLink_('.MediaSourceConfiguration');
     this.addSection_('Media source', docLink)
-        .addTextInput_('Source buffer extra features',
-            'mediaSource.sourceBufferExtraFeatures')
         .addBoolInput_('Force Transmux', 'mediaSource.forceTransmux')
         .addBoolInput_('Insert fake encryption in init segments when needed ' +
             'by the platform.', 'mediaSource.insertFakeEncryptionInInit')
@@ -555,6 +667,17 @@ shakaDemo.Config = class {
   }
 
   /** @private */
+  addCodecPreferenceSection_() {
+    const docLink = this.resolveExternLink_('.PlayerConfiguration');
+
+    this.addSection_('Codec preference', docLink)
+        .addArrayStringInput_('Preferred video codecs',
+            'preferredVideoCodecs')
+        .addArrayStringInput_('Preferred audio codecs',
+            'preferredAudioCodecs');
+  }
+
+  /** @private */
   addMetaSection_() {
     this.addSection_(/* name= */ null, /* docLink= */ null);
 
@@ -589,6 +712,12 @@ shakaDemo.Config = class {
           noop, 'Trick Play controls require the Shaka UI.');
       this.latestInput_.input().disabled = true;
       this.latestInput_.input().checked = false;
+    }
+    this.addCustomBoolInput_('Enabled custom context menu', (input) => {
+      shakaDemoMain.setCustomContextMenuEnabled(input.checked);
+    });
+    if (shakaDemoMain.getCustomContextMenuEnabled()) {
+      this.latestInput_.input().checked = true;
     }
 
     // shaka.log is not set if logging isn't enabled.
@@ -712,6 +841,26 @@ shakaDemo.Config = class {
    * @return {!shakaDemo.Config}
    * @private
    */
+  addArrayStringInput_(name, valueName, tooltipMessage) {
+    const onChange = (input) => {
+      shakaDemoMain.configure(valueName,
+          input.value.split(',').filter(Boolean));
+      shakaDemoMain.remakeHash();
+    };
+    this.addCustomTextInput_(name, onChange, tooltipMessage);
+    const configValue = /** @type {!Array.<string>} */ (
+      shakaDemoMain.getCurrentConfigValue(valueName));
+    this.latestInput_.input().value = configValue.join(',');
+    return this;
+  }
+
+  /**
+   * @param {!string} name
+   * @param {string} valueName
+   * @param {string=} tooltipMessage
+   * @return {!shakaDemo.Config}
+   * @private
+   */
   addTextInput_(name, valueName, tooltipMessage) {
     const onChange = (input) => {
       shakaDemoMain.configure(valueName, input.value);
@@ -750,27 +899,25 @@ shakaDemo.Config = class {
   addNumberInput_(name, valueName, canBeDecimal = false, canBeZero = true,
       canBeUnset = false, tooltipMessage) {
     const onChange = (input) => {
-      shakaDemoMain.resetConfiguration(valueName);
-      shakaDemoMain.remakeHash();
       if (input.value == 'Infinity') {
         shakaDemoMain.configure(valueName, Infinity);
-        shakaDemoMain.remakeHash();
-        return;
-      }
-      if (input.value == '' && canBeUnset) {
-        return;
-      }
-      const valueAsNumber = Number(input.value);
-      if (valueAsNumber == 0 && !canBeZero) {
-        return;
-      }
-      if (!isNaN(valueAsNumber)) {
-        if (Math.floor(valueAsNumber) != valueAsNumber && !canBeDecimal) {
-          return;
+      } else if (input.value == '' && canBeUnset) {
+        shakaDemoMain.resetConfiguration(valueName);
+      } else {
+        const valueAsNumber = Number(input.value);
+        if (valueAsNumber == 0 && !canBeZero) {
+          shakaDemoMain.resetConfiguration(valueName);
+        } else if (isNaN(valueAsNumber)) {
+          shakaDemoMain.resetConfiguration(valueName);
+        } else {
+          if (Math.floor(valueAsNumber) != valueAsNumber && !canBeDecimal) {
+            shakaDemoMain.resetConfiguration(valueName);
+          } else {
+            shakaDemoMain.configure(valueName, valueAsNumber);
+          }
         }
-        shakaDemoMain.configure(valueName, valueAsNumber);
-        shakaDemoMain.remakeHash();
       }
+      shakaDemoMain.remakeHash();
     };
     this.createRow_(name, tooltipMessage);
     this.latestInput_ = new shakaDemo.NumberInput(

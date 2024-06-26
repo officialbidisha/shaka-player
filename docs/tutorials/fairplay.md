@@ -73,8 +73,13 @@ default content ID derivation, you need to specify a custom init data transform:
 
 ```js
 player.configure('drm.initDataTransform', (initData, initDataType, drmInfo) => {
-  if (initDataType != 'skd')
+  if (initDataType != 'skd') {
+    // it is possible to get the skd urls from drmInfo, if necessary
+    const skdUriSet = drmInfo.keySystemUris;
+    // now you can handle it especially if necessary
+    // handleSkdUris(skdUriSet);
     return initData;
+  }
   // 'initData' is a buffer containing an 'skd://' URL as a UTF-8 string.
   const skdUri = shaka.util.StringUtils.fromBytesAutoDetect(initData);
   const contentId = getMyContentId(skdUri);
@@ -98,9 +103,9 @@ player.getNetworkingEngine().registerRequestFilter((type, request, context) => {
   const originalPayload = new Uint8Array(request.body);
   const base64Payload =
       shaka.util.Uint8ArrayUtils.toStandardBase64(originalPayload);
-  const params = 'spc=' + base64Payload;
+  const params = 'spc=' + encodeURIComponent(base64Payload);
   request.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-  request.body = shaka.util.StringUtils.toUTF8(encodeURIComponent(params));
+  request.body = shaka.util.StringUtils.toUTF8(params);
 });
 
 player.getNetworkingEngine().registerResponseFilter((type, response, context) => {

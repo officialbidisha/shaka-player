@@ -146,10 +146,7 @@ shakaDemo.Search = class {
       if (unsupportedReason) {
         c.markAsUnsupported(unsupportedReason);
       } else {
-        c.addButton('Play', () => {
-          shakaDemoMain.loadAsset(asset);
-          this.updateSelected_();
-        });
+        c.addBaseButtons();
         c.addStoreButton();
       }
     });
@@ -400,6 +397,14 @@ shakaDemo.Search = class {
         'Filters for assets that have an LCEVC enhancement layer.');
     this.makeBooleanInput_(specialContainer, Feature.CONTENT_STEERING, FEATURE,
         'Filters for assets that use Content Steering.');
+    this.makeBooleanInput_(specialContainer, Feature.MPD_PATCH, FEATURE,
+        'Filters for assets that use MPD Patch.');
+    this.makeBooleanInput_(specialContainer, Feature.VR, FEATURE,
+        'Filters for assets that are VR.');
+    this.makeBooleanInput_(specialContainer, Feature.MPD_CHAINING, FEATURE,
+        'Filters for assets that have MPD Chaining');
+    this.makeBooleanInput_(specialContainer, Feature.CMSD, FEATURE,
+        'Filters for assets that have Common Media Server Data.');
 
     container.appendChild(this.resultsDiv_);
   }

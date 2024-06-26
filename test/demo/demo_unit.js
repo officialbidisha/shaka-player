@@ -35,6 +35,9 @@ describe('Demo', () => {
 
   describe('config', () => {
     it('does not have entries for invalid config options', () => {
+      const exceptions = new Set()
+          .add('preferredAudioCodecs')
+          .add('preferredVideoCodecs');
       // We determine whether a config option has been made or not by looking at
       // which config values have been queried (via the fake main object's
       // |getCurrentConfigValue| method).
@@ -48,7 +51,8 @@ describe('Demo', () => {
         knownValueNames.add(valueName);
       });
       for (const valueName of configQueryData) {
-        if (!knownValueNames.has(valueName)) {
+        if (!knownValueNames.has(valueName) &&
+          !exceptions.has(valueName)) {
           fail('Demo has a config field for unknown value "' + valueName + '"');
         }
       }
@@ -77,11 +81,13 @@ describe('Demo', () => {
           .add('playRangeStart')
           .add('playRangeEnd')
           .add('manifest.dash.keySystemsByURI')
+          .add('manifest.hls.ignoreManifestProgramDateTimeForTypes')
           .add('manifest.mss.keySystemsBySystemId')
           .add('drm.keySystemsMapping')
           .add('manifest.raiseFatalErrorOnManifestUpdateRequestFailure')
           .add('drm.persistentSessionOnlinePlayback')
-          .add('drm.persistentSessionsMetadata');
+          .add('drm.persistentSessionsMetadata')
+          .add('mediaSource.modifyCueCallback');
 
       /**
        * @param {!Object} section

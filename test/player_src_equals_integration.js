@@ -115,8 +115,8 @@ describe('Player Src Equals', () => {
     expect(video.currentTime).toBeLessThan(2.0);
 
     // Trigger a seek and then wait for the seek to take effect.
-    // This seek target is very close to the duration of the video.
-    video.currentTime = 10;
+    // This seek target is very close to the duration of the video (10.01s).
+    video.currentTime = 9.5;
     await waiter.waitForMovementOrFailOnTimeout(video, /* timeout= */10);
 
     // Make sure the playhead is roughly where we expect it to be after
@@ -177,7 +177,7 @@ describe('Player Src Equals', () => {
 
     // Let playback run for a little.
     await video.play();
-    await waiter.waitForMovementOrFailOnTimeout(video, /* timeout= */10);
+    await waiter.waitForMovementOrFailOnTimeout(video, /* timeout= */ 10);
 
     // Enabling trick play should change our playback rate to the same rate.
     player.trickPlay(2);

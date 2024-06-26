@@ -51,7 +51,8 @@ describe('UITextDisplayer', () => {
 
   beforeEach(() => {
     video.currentTime = 0;
-    textDisplayer = new shaka.text.UITextDisplayer(video, videoContainer);
+    textDisplayer = new shaka.text.UITextDisplayer(
+        video, videoContainer, {captionsUpdatePeriod: 0.25});
   });
 
   afterEach(async () => {
@@ -604,5 +605,21 @@ describe('UITextDisplayer', () => {
     const childrenOfTwo = Array.from(allRegionElements[1].childNodes).filter(
         (e) => e.nodeType == Node.ELEMENT_NODE);
     expect(childrenOfTwo.length).toBe(3);
+  });
+
+  it('textDisplayer does not crash if destroy is called more than once', () => {
+    expect(videoContainer.childNodes.length).toBe(1);
+
+    textDisplayer.destroy();
+    textDisplayer.destroy();
+
+    expect(videoContainer.childNodes.length).toBe(0);
+  });
+
+  it('Backward compatible UITextDisplayer constructor', () => {
+    // The third argument to UITextDisplayer constructor is new in v4.8.0.
+    // Test without, to support existing applications.
+    /** @suppress {checkTypes} */
+    textDisplayer = new shaka.text.UITextDisplayer(video, videoContainer);
   });
 });

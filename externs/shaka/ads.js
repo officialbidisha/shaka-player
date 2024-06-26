@@ -12,9 +12,11 @@
 /**
  * @typedef {{
  *   loadTimes: !Array.<number>,
+ *   averageLoadTime: number,
  *   started: number,
  *   playedCompletely: number,
- *   skipped: number
+ *   skipped: number,
+ *   errors: number
  * }}
  *
  * @description
@@ -22,12 +24,16 @@
  *
  * @property {number} loadTimes
  *   The set of amounts of time it took to get the final manifest.
+ * @property {number} averageLoadTime
+ *   The average time it took to get the final manifest.
  * @property {number} started
  *   The number of ads started.
  * @property {number} playedCompletely
  *   The number of ads played completely.
  * @property {number} skipped
  *   The number of ads skipped.
+ * @property {number} errors
+ *   The number of ads with errors.
  * @exportDoc
  */
 shaka.extern.AdsStats;
@@ -78,6 +84,13 @@ shaka.extern.IAdManager = class extends EventTarget {
   onAssetUnload() {}
 
   /**
+   * @param {?HTMLElement} adContainer
+   * @param {!shaka.Player} basePlayer
+   * @param {!HTMLMediaElement} baseVideo
+   */
+  initInterstitial(adContainer, basePlayer, baseVideo) {}
+
+  /**
    * @param {!HTMLElement} adContainer
    * @param {!HTMLMediaElement} video
    * @param {?google.ima.AdsRenderingSettings} adsRenderingSettings
@@ -108,6 +121,11 @@ shaka.extern.IAdManager = class extends EventTarget {
    * @return {!Promise.<string>}
    */
   requestMediaTailorStream(url, adsParams, backupUrl) {}
+
+  /**
+   * @param {string} url
+   */
+  addMediaTailorTrackingUrl(url) {}
 
   /**
    * @param {!HTMLElement} adContainer
@@ -165,6 +183,13 @@ shaka.extern.IAdManager = class extends EventTarget {
    * @param {shaka.extern.MetadataFrame} value
    */
   onCueMetadataChange(value) {}
+
+  /**
+   * @param {!shaka.Player} basePlayer
+   * @param {!HTMLMediaElement} baseVideo
+   * @param {shaka.extern.Interstitial} interstitial
+   */
+  onInterstitialMetadata(basePlayer, baseVideo, interstitial) {}
 };
 
 

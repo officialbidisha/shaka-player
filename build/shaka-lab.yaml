@@ -19,6 +19,10 @@ vars:
         media.gmp-manager.updateEnabled: true
         # Overrides Firefox's Linux-specific default setting to disable DRM.
         media.eme.enabled: true
+        # Disable GPU acceleration to avoid contention for hardware resources
+        # during parallel testing and to create more stability for screenshots.
+        media.hardware-video-decoding.enabled: false
+        media.hardware-video-decoding.force-enabled: false
 
   basic_chrome_config: &basic_chrome_config
     goog:chromeOptions:
@@ -37,6 +41,11 @@ vars:
         - "--disable-background-media-suspend"
         - "--disable-background-timer-throttling"
         - "--disable-backgrounding-occluded-windows"
+        # Disable GPU acceleration to avoid contention for hardware resources
+        # during parallel testing and to create more stability for screenshots.
+        # NOTE: This breaks WebGL-based tests, specifically on Mac.  Other
+        # platforms seem to fall back to software GL.
+        - "--disable-gpu"
 
       # Instruct chromedriver not to disable component updater. The component
       # updater must run in order for the Widevine CDM to be available when
@@ -55,6 +64,9 @@ vars:
         - "--disable-background-media-suspend"
         - "--disable-background-timer-throttling"
         - "--disable-backgrounding-occluded-windows"
+        # Disable GPU acceleration to avoid contention for hardware resources
+        # during parallel testing and to create more stability for screenshots.
+        - "--disable-gpu"
 
       # Instruct edgedriver not to disable component updater. The component
       # updater must run in order for the Widevine CDM to be available when
@@ -68,6 +80,18 @@ vars:
     ms:edgeOptions:
       binary: /usr/bin/microsoft-edge
 
+  # Work around https://github.com/MicrosoftEdge/EdgeWebDriver/issues/102#issuecomment-1710724173
+  # by specifying the binary path on Mac.
+  edge_mac_config: &edge_mac_config
+    ms:edgeOptions:
+      binary: /Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge
+
+  # Work around https://github.com/MicrosoftEdge/EdgeWebDriver/issues/102#issuecomment-1710724173
+  # by specifying the binary path on Mac.
+  edge_windows_config: &edge_windows_config
+    ms:edgeOptions:
+      binary: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+
   android_chrome_config: &android_chrome_config
     goog:chromeOptions:
       args:
@@ -75,6 +99,12 @@ vars:
         # us as it does on other platforms.  Without --user-data-dir,
         # --unsafely-allow... does not work.
         - "--user-data-dir=/data/data/com.android.chrome/cache"
+
+      excludeSwitches:
+        # On Android, we must override the --disable-gpu set in the general
+        # Chrome settings.  This flag is not supported on Android, where GPU is
+        # required.
+        - "disable-gpu"
 
       # Once the new session request reaches chromedriver, it will take
       # the androidPackage option as a request to start Chrome through
@@ -132,6 +162,7 @@ EdgeMac:
   os: Mac
   extra_configs:
     - *basic_edge_config
+    - *edge_mac_config
 
 Safari:
   browser: safari
@@ -165,6 +196,7 @@ Edge:
   os: Windows
   extra_configs:
     - *basic_edge_config
+    - *edge_windows_config
 
 
 ### Linux ###
@@ -206,11 +238,34 @@ ChromecastGTV:
   browser: chromecast
   version: GTV
 
-Chromebook:
+ChromecastHub:
+  browser: chromecast
+  version: hub
+  # Disabled by default until we resolve issues with autoplay on Fuchsia.
+  disabled: true
+
+ChromecastSpeaker:
+  # This is a headless device, and our tests are not yet known to work here.
+  # Do not run tests here by default.
+  # This device can still be requested explicitly in the Selenium workflow.
+  disabled: true
+  browser: chromecast
+  version: speaker
+
+ChromecastV1:
+  # This is a very low-performing device, and many of our tests don't work here.
+  # Do not run tests here by default.
+  # This device can still be requested explicitly in the Selenium workflow.
+  disabled: true
+  browser: chromecast
+  version: v1
+
+ChromeOS:
   # TODO(b/145916766): Persistent license tests failing
   disabled: true
   browser: chromeos
-  version: Pixelbook
+  # https://www.acer.com/us-en/desktops-and-all-in-ones/acer-chromebox/acer-chromebox-cxi3/indexnew
+  version: Acer-CXI3
   extra_configs:
     - *chromeos_config
 

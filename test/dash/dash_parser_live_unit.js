@@ -38,6 +38,8 @@ describe('DashParser Live', () => {
       newDrmInfo: (stream) => {},
       onManifestUpdated: () => {},
       getBandwidthEstimate: () => 1e6,
+      onMetadata: () => {},
+      disableStream: (stream) => {},
     };
   });
 
@@ -413,6 +415,7 @@ describe('DashParser Live', () => {
     Date.now = () => 5;
 
     const manifest = await parser.start('dummy://foo', playerInterface);
+    expect(manifest.periodCount).toBe(1);
     const variant = manifest.variants[0];
     const stream = variant.video;
     await stream.createSegmentIndex();
@@ -426,6 +429,8 @@ describe('DashParser Live', () => {
     Date.now = () => 15;
 
     await updateManifest();
+
+    expect(manifest.periodCount).toBe(2);
 
     // The update should have affected the same variant object we captured
     // before.  Now the entire first period should exist (0-10s), plus the next
@@ -506,6 +511,7 @@ describe('DashParser Live', () => {
     Date.now = () => 5;
 
     const manifest = await parser.start('dummy://foo', playerInterface);
+    expect(manifest.periodCount).toBe(1);
     const variant = manifest.variants[0];
     const stream = variant.video;
     await stream.createSegmentIndex();
@@ -518,6 +524,8 @@ describe('DashParser Live', () => {
     Date.now = () => 25;
 
     await updateManifest();
+
+    expect(manifest.periodCount).toBe(2);
 
     // The update should have affected the same variant object we captured
     // before.  Now the entire first period should exist (0-40s), plus the next
@@ -640,6 +648,25 @@ describe('DashParser Live', () => {
     await updateManifest();
     expect(onError).toHaveBeenCalledWith(error);
     expect(updateTick).toHaveBeenCalledTimes(1);
+  });
+
+  it('still updates when @minimumUpdatePeriod is zero', async () => {
+    const lines = [
+      '<SegmentTemplate startNumber="1" media="s$Number$.mp4" duration="2" />',
+    ];
+    // updateTime parameter sets @minimumUpdatePeriod in the manifest.
+    const manifestText = makeSimpleLiveManifestText(lines, /* updateTime= */ 0);
+
+    /** @type {!jasmine.Spy} */
+    const tickAfter = updateTickSpy();
+    Date.now = () => 0;
+
+    fakeNetEngine.setResponseText('dummy://foo', manifestText);
+    await parser.start('dummy://foo', playerInterface);
+
+    expect(tickAfter).toHaveBeenCalledTimes(1);
+    const delay = tickAfter.calls.mostRecent().args[0];
+    expect(delay).toBe(0);
   });
 
   it('uses @minimumUpdatePeriod', async () => {
@@ -1301,6 +1328,7 @@ describe('DashParser Live', () => {
         endTime: 60,
         id: '',
         eventElement: jasmine.any(Element),
+        eventNode: jasmine.any(Object),
       });
       expect(onTimelineRegionAddedSpy).toHaveBeenCalledWith({
         schemeIdUri: 'http://example.com',
@@ -1309,6 +1337,7 @@ describe('DashParser Live', () => {
         endTime: 23,
         id: 'abc',
         eventElement: jasmine.any(Element),
+        eventNode: jasmine.any(Object),
       });
     });
 

@@ -373,7 +373,7 @@ describe('MpdUtils', () => {
       checkTimePoints(timePoints, result, 1, 0, 20);
     });
 
-    it('ignores elements after null duration', () => {
+    it('ignores elements with null duration', () => {
       const timePoints = [
         createTimePoint(0, 10, 0),
         createTimePoint(10, 10, 0),
@@ -383,7 +383,9 @@ describe('MpdUtils', () => {
       ];
       const result = [
         {start: 0, end: 10},
-        {start: 10, end: 20},
+        {start: 10, end: 30},
+        {start: 30, end: 40},
+        {start: 40, end: 50},
       ];
       checkTimePoints(timePoints, result, 1, 0, Infinity);
     });
@@ -452,15 +454,14 @@ describe('MpdUtils', () => {
                       ' />');
       }
       xmlLines.push('</SegmentTimeline>');
-      const parser = new DOMParser();
-      const xml =
-          parser.parseFromString(xmlLines.join('\n'), 'application/xml');
-      const segmentTimeline = xml.documentElement;
-      console.assert(segmentTimeline);
+      const segmentTimeline = /** @type {shaka.extern.xml.Node} */ (
+        shaka.util.TXml.parseXmlString(xmlLines.join('\n'),
+            'SegmentTimeline'));
+
+      const timePoints = shaka.util.TXml.findChildren(segmentTimeline, 'S');
 
       const timeline = MpdUtils.createTimeline(
-          segmentTimeline, timescale, presentationTimeOffset,
-          periodDuration, 0);
+          timePoints, timescale, presentationTimeOffset, periodDuration, 0);
       expect(timeline).toEqual(
           expected.map((c) => jasmine.objectContaining(c)));
     }
@@ -473,8 +474,6 @@ describe('MpdUtils', () => {
     let fakeNetEngine;
     /** @type {shaka.extern.RetryParameters} */
     let retry;
-    /** @type {!DOMParser} */
-    let parser;
     /** @type {boolean} */
     let failGracefully;
 
@@ -482,7 +481,6 @@ describe('MpdUtils', () => {
       failGracefully = false;
       retry = shaka.net.NetworkingEngine.defaultRetryParameters();
       fakeNetEngine = new shaka.test.FakeNetworkingEngine();
-      parser = new DOMParser();
     });
 
     it('will replace elements and children', async () => {
@@ -541,18 +539,6 @@ describe('MpdUtils', () => {
       await testSucceeds(baseXMLString, desiredXMLString, 3);
     });
 
-    it('fails if loaded file is invalid xml', async () => {
-      const baseXMLString = inBaseContainer(
-          '<ToReplace xlink:href="https://xlink1" xlink:actuate="onLoad" />');
-      // Note this does not have a close angle bracket.
-      const xlinkXMLString = '<ToReplace></ToReplace';
-      const expectedError = new shaka.util.Error(
-          Error.Severity.CRITICAL, Error.Category.MANIFEST,
-          Error.Code.DASH_INVALID_XML, 'https://xlink1');
-
-      fakeNetEngine.setResponseText('https://xlink1', xlinkXMLString);
-      await testFails(baseXMLString, expectedError, 1);
-    });
 
     it('fails if it recurses too many times', async () => {
       const baseXMLString = inBaseContainer(
@@ -691,8 +677,8 @@ describe('MpdUtils', () => {
       /** @type {!shaka.util.PublicPromise} */
       const continuePromise = fakeNetEngine.delayNextRequest();
 
-      const xml = parser.parseFromString(baseXMLString, 'text/xml')
-          .documentElement;
+      const xml = /** @type {shaka.extern.xml.Node} */ (
+        shaka.util.TXml.parseXmlString(baseXMLString));
       /** @type {!shaka.extern.IAbortableOperation} */
       const operation = MpdUtils.processXlinks(
           xml, retry, failGracefully, 'https://base', fakeNetEngine);
@@ -730,11 +716,11 @@ describe('MpdUtils', () => {
 
     async function testSucceeds(
         baseXMLString, desiredXMLString, desiredNetCalls) {
-      const desiredXML = parser.parseFromString(desiredXMLString, 'text/xml')
-          .documentElement;
+      const desiredXML = /** @type {shaka.extern.xml.Node} */ (
+        shaka.util.TXml.parseXmlString(desiredXMLString));
       const finalXML = await testRequest(baseXMLString);
       expect(fakeNetEngine.request).toHaveBeenCalledTimes(desiredNetCalls);
-      expect(finalXML).toEqualElement(desiredXML);
+      expect(finalXML).toEqual(desiredXML);
     }
 
     async function testFails(baseXMLString, desiredError, desiredNetCalls) {
@@ -785,8 +771,8 @@ describe('MpdUtils', () => {
     }
 
     function testRequest(baseXMLString) {
-      const xml = parser.parseFromString(baseXMLString, 'text/xml')
-          .documentElement;
+      const xml = /** @type {shaka.extern.xml.Node} */ (
+        shaka.util.TXml.parseXmlString(baseXMLString));
       return MpdUtils.processXlinks(xml, retry, failGracefully, 'https://base',
           fakeNetEngine).promise;
     }

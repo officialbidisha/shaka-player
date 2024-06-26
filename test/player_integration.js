@@ -61,6 +61,46 @@ describe('Player', () => {
     document.body.removeChild(video);
   });
 
+  describe('seek range', () => {
+    // Regression test for Issue #3675.
+    it('has a reasonable seek range after going from live to VOD', async () => {
+      const netEngine = player.getNetworkingEngine();
+      const startTime = Date.now();
+      netEngine.registerRequestFilter((type, request) => {
+        if (type != shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+          return;
+        }
+        // Simulate a live stream by providing different manifests over time.
+        const time = (Date.now() - startTime) / 1000;
+        const manifestNumber = Math.min(5, Math.floor(0.5 + time / 2));
+        request.uris = [
+          '/base/test/test/assets/3675/dash_' + manifestNumber + '.mpd',
+        ];
+        console.log('getting manifest', request.uris);
+      });
+
+      // Play the stream.
+      await player.load('/base/test/test/assets/3675/dash_0.mpd');
+      await video.play();
+
+      // Wait for the stream to be over.
+      eventManager.listen(player, 'error', Util.spyFunc(onErrorSpy));
+      /** @type {shaka.test.Waiter} */
+      const waiter = new shaka.test.Waiter(eventManager)
+          .setPlayer(player)
+          .timeoutAfter(40)
+          .failOnTimeout(true);
+      await waiter.waitForEnd(video);
+
+      // The stream should have transitioned to VOD by now.
+      expect(player.isLive()).toBe(false);
+
+      // Check that the final seek range is as expected.
+      const seekRange = player.seekRange();
+      expect(seekRange.end).toBeCloseTo(14);
+    });
+  });
+
   describe('attach', () => {
     beforeEach(async () => {
       // To test attach, we want to construct a player without a video element
@@ -177,6 +217,13 @@ describe('Player', () => {
         liveLatency: jasmine.any(Number),
 
         maxSegmentDuration: jasmine.any(Number),
+
+        manifestSizeBytes: jasmine.any(Number),
+        bytesDownloaded: jasmine.any(Number),
+
+        nonFatalErrorCount: jasmine.any(Number),
+        manifestPeriodCount: jasmine.any(Number),
+        manifestGapCount: jasmine.any(Number),
 
         // We should have loaded the first Period by now, so we should have a
         // history.
@@ -570,6 +617,9 @@ describe('Player', () => {
     });
 
     it('in sequence mode', async () => {
+      if (!shaka.util.Platform.supportsSequenceMode()) {
+        pending('Sequence mode is not supported by the platform.');
+      }
       await player.load('test:sintel_sequence_compiled');
       expect(player.getManifest().sequenceMode).toBe(true);
 
@@ -908,46 +958,6 @@ describe('Player', () => {
     });
   });
 
-  describe('seek range', () => {
-    // Regression test for Issue #3675.
-    it('has a reasonable seek range after going from live to VOD', async () => {
-      const netEngine = player.getNetworkingEngine();
-      const startTime = Date.now();
-      netEngine.registerRequestFilter((type, request) => {
-        if (type != shaka.net.NetworkingEngine.RequestType.MANIFEST) {
-          return;
-        }
-        // Simulate a live stream by providing different manifests over time.
-        const time = (Date.now() - startTime) / 1000;
-        const manifestNumber = Math.min(5, Math.floor(0.5 + time / 2));
-        request.uris = [
-          '/base/test/test/assets/3675/dash_' + manifestNumber + '.mpd',
-        ];
-        console.log('getting manifest', request.uris);
-      });
-
-      // Play the stream.
-      await player.load('/base/test/test/assets/3675/dash_0.mpd');
-      await video.play();
-
-      // Wait for the stream to be over.
-      eventManager.listen(player, 'error', Util.spyFunc(onErrorSpy));
-      /** @type {shaka.test.Waiter} */
-      const waiter = new shaka.test.Waiter(eventManager)
-          .setPlayer(player)
-          .timeoutAfter(40)
-          .failOnTimeout(true);
-      await waiter.waitForEnd(video);
-
-      // The stream should have transitioned to VOD by now.
-      expect(player.isLive()).toBe(false);
-
-      // Check that the final seek range is as expected.
-      const seekRange = player.seekRange();
-      expect(seekRange.end).toBeCloseTo(14);
-    });
-  });
-
   describe('buffering', () => {
     const startBuffering = jasmine.objectContaining({buffering: true});
     const endBuffering = jasmine.objectContaining({buffering: false});
@@ -1012,6 +1022,9 @@ describe('Player', () => {
     });
 
     it('buffers ahead of the playhead', async () => {
+      if (window.ManagedMediaSource) {
+        pending('ManagedMediaSource has buffer control signals.');
+      }
       player.configure('streaming.bufferingGoal', 10);
 
       await player.load('test:sintel_long_compiled');
@@ -1036,6 +1049,9 @@ describe('Player', () => {
     });
 
     it('clears buffer behind playhead', async () => {
+      if (window.ManagedMediaSource) {
+        pending('ManagedMediaSource has buffer control signals.');
+      }
       player.configure('streaming.bufferingGoal', 30);
       player.configure('streaming.bufferBehind', 30);
 
@@ -1183,7 +1199,8 @@ describe('Player', () => {
     drmIt('unloads properly after DRM error', async () => {
       const drmSupport = await shaka.media.DrmEngine.probeSupport();
       if (!drmSupport['com.widevine.alpha'] &&
-          !drmSupport['com.microsoft.playready']) {
+          !drmSupport['com.microsoft.playready'] &&
+          !drmSupport['com.chromecast.playready']) {
         pending('Skipping DRM error test, only runs on Widevine and PlayReady');
       }
 
@@ -1202,13 +1219,21 @@ describe('Player', () => {
         'com.widevine.alpha': bogusUrl,
         'com.microsoft.playready': bogusUrl,
       });
-      await player.load('test:sintel-enc_compiled');
+
+      // This load may be interrupted, so ignore errors and don't wait.
+      const loadPromise =
+          player.load('test:sintel-enc_compiled').catch(() => {});
 
       await errorPromise;
       expect(unloadPromise).not.toBeNull();
+
       if (unloadPromise) {
         await unloadPromise;
       }
+
+      // This should be done, and errors ignored.  But don't leave any Promise
+      // unresolved.
+      await loadPromise;
     });
   });  // describe('unloading')
 
@@ -1368,4 +1393,70 @@ describe('Player', () => {
           expect(thumbnails.length).toBe(3);
         });
   });  // describe('addThumbnailsTrack')
+
+  it('preload', async () => {
+    const preloadManager = await player.preload('test:sintel_compiled');
+    await preloadManager.waitForFinish();
+    await player.load(preloadManager);
+    await video.play();
+    await waiter.waitUntilPlayheadReachesOrFailOnTimeout(video, 1, 10);
+  });
+
+  it('detachAndSavePreload', async () => {
+    await player.load('test:sintel_compiled');
+    await video.play();
+    const preloadManager = await player.detachAndSavePreload();
+    await player.attach(video);
+    await player.load(preloadManager);
+    await video.play();
+    await waiter.waitUntilPlayheadReachesOrFailOnTimeout(video, 1, 10);
+  });
+
+  it('unloadAndSavePreload', async () => {
+    await player.load('test:sintel_compiled');
+    await video.play();
+    const preloadManager = await player.unloadAndSavePreload();
+    await player.load(preloadManager);
+    await video.play();
+    await waiter.waitUntilPlayheadReachesOrFailOnTimeout(video, 1, 10);
+  });
+
+  describe('supports nextUrl', () => {
+    const urlWithNextUrl = 'test:sintel_next_url_compiled';
+
+    it('with preload', async () => {
+      player.configure('streaming.preloadNextUrlWindow', 30);
+      await player.load(urlWithNextUrl);
+      await video.play();
+      await waiter.timeoutAfter(30).waitForEnd(video);
+      expect(player.getAssetUri()).toBe(urlWithNextUrl);
+      // Delay needed to load the next URL.
+      await shaka.test.Util.delay(1);
+      expect(player.getAssetUri()).not.toBe(urlWithNextUrl);
+    });
+
+    it('without preload', async () => {
+      player.configure('streaming.preloadNextUrlWindow', 0);
+      await player.load(urlWithNextUrl);
+      await video.play();
+      await waiter.timeoutAfter(30).waitForEnd(video);
+      expect(player.getAssetUri()).toBe(urlWithNextUrl);
+      // Delay needed to load the next URL.
+      await shaka.test.Util.delay(1);
+      expect(player.getAssetUri()).not.toBe(urlWithNextUrl);
+    });
+  });
+
+  describe('buffer gap', () => {
+    // Regression test for issue #6339.
+    it('skip initial buffer gap', async () => {
+      if (window.ManagedMediaSource) {
+        pending('Skipping test, only runs on MSE');
+      }
+      // Ensure the video has loaded.
+      await player.load('/base/test/test/assets/6339/master.mpd');
+      await waiter.timeoutAfter(10).waitForEvent(video, 'loadeddata');
+      expect(video.currentTime).toBeGreaterThanOrEqual(0);
+    });
+  });
 });

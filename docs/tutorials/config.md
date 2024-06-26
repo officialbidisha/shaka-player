@@ -126,13 +126,16 @@ With `.streaming.lowLatencyMode` set to true,
 `.streaming.inaccurateManifestTolerance` is set to 0 by default,
 `.streaming.rebufferingGoal` is set to 0.01 by default,
 `.streaming.segmentPrefetchLimit` is set to 2 by default,
+`.streaming.updateIntervalSeconds` is set to 0.1 by default,
+`.streaming.maxDisabledTime` is set to 1 by default,
 `.streaming.retryParameters.baseDelay` is set to 100 by default,
+`.manifest.dash.autoCorrectDrift` is set to false by default,
 `.manifest.retryParameters.baseDelay` is set to 100 by default, and
 `.drm.retryParameters.baseDelay` is set to 100 by default.
 
 To customize the values of inaccurateManifestTolerance, rebufferingGoal,
-segmentPrefetchLimit and baseDelay with low latency mode, you can set the
-fields in the same or subsequent call to configure().
+segmentPrefetchLimit, updateIntervalSeconds and baseDelay with low latency
+mode, you can set the fields in the same or subsequent call to configure().
 ```js
 player.configure({
   streaming: {
@@ -140,11 +143,16 @@ player.configure({
     inaccurateManifestTolerance: 0,
     rebufferingGoal: 0.01,
     segmentPrefetchLimit: 2,
+    updateIntervalSeconds: 0.1,
+    maxDisabledTime: 1,
     retryParameters: {
       baseDelay: 100,
     },
   },
   manifest: {
+    dash: {
+      autoCorrectDrift: true,
+    },
     retryParameters: {
       baseDelay: 100,
     },

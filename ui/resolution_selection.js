@@ -14,6 +14,7 @@ goog.require('shaka.ui.Enums');
 goog.require('shaka.ui.Locales');
 goog.require('shaka.ui.Localization');
 goog.require('shaka.ui.OverflowMenu');
+goog.require('shaka.ui.Overlay.TrackLabelFormat');
 goog.require('shaka.ui.SettingsMenu');
 goog.require('shaka.ui.Utils');
 goog.require('shaka.util.Dom');
@@ -49,6 +50,10 @@ shaka.ui.ResolutionSelection = class extends shaka.ui.SettingsMenu {
         });
 
 
+    this.eventManager.listen(this.player, 'loading', () => {
+      this.updateResolutionSelection_();
+    });
+
     this.eventManager.listen(this.player, 'variantchanged', () => {
       this.updateResolutionSelection_();
     });
@@ -67,6 +72,7 @@ shaka.ui.ResolutionSelection = class extends shaka.ui.SettingsMenu {
 
   /** @private */
   updateResolutionSelection_() {
+    const TrackLabelFormat = shaka.ui.Overlay.TrackLabelFormat;
     /** @type {!Array.<shaka.extern.Track>} */
     let tracks = [];
     // When played with src=, the variant tracks available from
@@ -80,22 +86,41 @@ shaka.ui.ResolutionSelection = class extends shaka.ui.SettingsMenu {
     // available resolutions.
     const selectedTrack = tracks.find((track) => track.active);
     if (selectedTrack) {
-      // Filter by current audio language and channel count.
-      tracks = tracks.filter(
-          (track) => track.language == selectedTrack.language &&
-              track.channelsCount == selectedTrack.channelsCount);
+      tracks = tracks.filter((track) => {
+        if (track.language != selectedTrack.language) {
+          return false;
+        }
+        if (this.controls.getConfig().showAudioChannelCountVariants &&
+            track.channelsCount != selectedTrack.channelsCount) {
+          return false;
+        }
+        const trackLabelFormat = this.controls.getConfig().trackLabelFormat;
+        if ((trackLabelFormat == TrackLabelFormat.ROLE ||
+            trackLabelFormat == TrackLabelFormat.LANGUAGE_ROLE)) {
+          if (JSON.stringify(track.audioRoles) !=
+              JSON.stringify(selectedTrack.audioRoles)) {
+            return false;
+          }
+        }
+        if (trackLabelFormat == TrackLabelFormat.LABEL &&
+            track.label != selectedTrack.label) {
+          return false;
+        }
+        return true;
+      });
     }
 
     // Remove duplicate entries with the same resolution or quality depending
     // on content type.  Pick an arbitrary one.
     tracks = tracks.filter((track, idx) => {
-      // Keep the first one with the same height and framrate or bandwidth.
+      // Keep the first one with the same height and framerate or bandwidth.
       let otherIdx = -1;
       if (this.player.isAudioOnly()) {
         otherIdx = tracks.findIndex((t) => t.bandwidth == track.bandwidth);
       } else {
         otherIdx = tracks.findIndex((t) => {
           return t.height == track.height &&
+              t.videoBandwidth == track.videoBandwidth &&
               t.frameRate == track.frameRate &&
               t.hdr == track.hdr &&
               t.videoLayout == track.videoLayout;
@@ -115,6 +140,9 @@ shaka.ui.ResolutionSelection = class extends shaka.ui.SettingsMenu {
       tracks.sort((t1, t2) => {
         goog.asserts.assert(t1.height != null, 'Null height');
         goog.asserts.assert(t2.height != null, 'Null height');
+        if (t2.height == t1.height) {
+          return t2.bandwidth - t1.bandwidth;
+        }
         return t2.height - t1.height;
       });
     }
@@ -143,7 +171,7 @@ shaka.ui.ResolutionSelection = class extends shaka.ui.SettingsMenu {
       if (this.player.isAudioOnly() && track.bandwidth) {
         span.textContent = Math.round(track.bandwidth / 1000) + ' kbits/s';
       } else if (track.height && track.width) {
-        span.textContent = this.getResolutionLabel_(track);
+        span.textContent = this.getResolutionLabel_(track, tracks);
       } else {
         span.textContent = 'Unknown';
       }
@@ -201,10 +229,11 @@ shaka.ui.ResolutionSelection = class extends shaka.ui.SettingsMenu {
 
   /**
    * @param {!shaka.extern.Track} track
+   * @param {!Array.<!shaka.extern.Track>} tracks
    * @return {string}
    * @private
    */
-  getResolutionLabel_(track) {
+  getResolutionLabel_(track, tracks) {
     const trackHeight = track.height || 0;
     const trackWidth = track.width || 0;
     let height = trackHeight;
@@ -225,6 +254,14 @@ shaka.ui.ResolutionSelection = class extends shaka.ui.SettingsMenu {
     }
     if (track.videoLayout == 'CH-STEREO') {
       text += ' (3D)';
+    }
+    if (track.videoBandwidth) {
+      const hasDuplicateResolution = tracks.some((otherTrack) => {
+        return otherTrack != track && otherTrack.height == track.height;
+      });
+      if (hasDuplicateResolution) {
+        text += ' (' + Math.round(track.videoBandwidth / 1000) + ' kbits/s)';
+      }
     }
     return text;
   }

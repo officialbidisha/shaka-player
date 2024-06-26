@@ -77,7 +77,11 @@ shakaDemo.AssetCard = class {
       img.src = asset.iconUri;
       img.alt = '';  // Not necessary to understand the page
 
-      picture.appendChild(webpSource);
+      // It can only be guaranteed that they have a webp version if they are on
+      // our server.
+      if (asset.iconUri.startsWith('https://storage.googleapis.com')) {
+        picture.appendChild(webpSource);
+      }
       picture.appendChild(pngSource);
       picture.appendChild(img);
 
@@ -239,6 +243,57 @@ shakaDemo.AssetCard = class {
   remakeButtons() {
     shaka.util.Dom.removeAllChildren(this.actions_);
     this.remakeButtonsFn_(this);
+  }
+
+  /** Adds basic buttons to the card ("play" and "preload"). */
+  addBaseButtons() {
+    let disableButtons = false;
+    this.addButton('Play', async () => {
+      if (disableButtons) {
+        return;
+      }
+      disableButtons = true;
+      await shakaDemoMain.loadAsset(this.asset_);
+      this.remakeButtons();
+    });
+    let preloadName = 'Start Preload';
+    if (this.asset_.preloadManager) {
+      preloadName = this.asset_.preloaded ? 'Preloaded!' : 'Preloading...';
+    } else if (this.asset_.preloadFailed) {
+      preloadName = 'Failed to Preload!';
+    }
+    const preloadButton = this.addButton(preloadName, async () => {
+      if (disableButtons) {
+        return;
+      }
+      disableButtons = true;
+      this.asset_.preloaded = false;
+      if (this.asset_.preloadManager) {
+        await this.asset_.preloadManager.destroy();
+        this.asset_.preloadManager = null;
+        this.remakeButtons();
+      } else {
+        try {
+          await shakaDemoMain.preloadAsset(this.asset_);
+          this.remakeButtons();
+          if (this.asset_.preloadManager) {
+            await this.asset_.preloadManager.waitForFinish();
+            this.asset_.preloaded = true;
+          } else {
+            this.asset_.preloadFailed = true;
+          }
+        } catch (error) {
+          this.asset_.preloadManager = null;
+          this.asset_.preloadFailed = true;
+          throw error;
+        } finally {
+          this.remakeButtons();
+        }
+      }
+    });
+    if (this.asset_.preloadFailed) {
+      preloadButton.disabled = true;
+    }
   }
 
   /**

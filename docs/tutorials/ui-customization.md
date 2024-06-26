@@ -74,6 +74,10 @@ The following elements can be added to the UI bar using this configuration value
 * language: adds a button that controls audio language selection.
 * playback_rate: adds a button that controls the playback rate selection.
 * captions: adds a button that controls the current text track selection (including turning it off).
+* recenter_vr: adds a button that recenter the VR view to the initial view. The button is visible
+  only if playing a VR content.
+* toggle_stereoscopic: adds a button that toggle between monoscopic and stereoscopic. The button
+  is visible only if playing a VR content.
 <!-- TODO: If we add more buttons that can be put in the order this way, list them here. -->
 [Document Picture-in-Picture API]: https://developer.chrome.com/docs/web-platform/document-picture-in-picture/
 
@@ -95,7 +99,12 @@ The following buttons can be added to the overflow menu:
   supports AirPlay.
 * remote: adds a button that opens a Remote Playback dialog. The button is visible only if the
   browser supports Remote Playback API.
-* Statistics: adds a button that displays statistics of the video.
+* statistics: adds a button that displays statistics of the video.
+* recenter_vr: adds a button that recenter the VR view to the initial view. The button is visible
+  only if playing a VR content.
+* toggle_stereoscopic: adds a button that toggle between monoscopic and stereoscopic. The button
+  is visible only if playing a VR content.
+* ad_statistics: adds a button that displays ad statistics of the video.
 <!-- TODO: If we add more buttons that can be put in the order this way, list them here. -->
 
 Example:
@@ -126,11 +135,12 @@ ui.configure(config);
 
 A custom context menu can be added through the `customContextMenu` boolean. Additionally, the `contextMenuElements` option can be used to add elements to it.
 The following buttons can be added to the context menu:
-* Statistics: adds a button that displays statistics of the video.
+* statistics: adds a button that displays statistics of the video.
 * loop: adds a button that controls if the currently selected video is played in a loop.
 * picture_in_picture: adds a button that enables/disables picture-in-picture mode on browsers
   that support it. Button is invisible on other browsers. Note that it will use the 
   [Document Picture-in-Picture API]() if supported.
+* ad_statistics: adds a button that displays ad statistics of the video.
 
 Example:
 ```js
@@ -152,6 +162,21 @@ const config = {
   'customContextMenu' : true,
   'contextMenuElements' : ['statistics'],
   'statisticsList' : ['width', 'height', 'playTime', 'bufferingTime'],
+}
+ui.configure(config);
+```
+
+#### Configuring Ad Statistics
+The list of ad statistics that are displayed when toggling the ad statistics button can be customized by specifying a `adStatisticsList` on the configuration. All of the statistics from the {@link shaka.extern.AdsStats `AdsStats`} extern can be displayed.
+
+Example:
+```js
+// Add a context menu with the 'ad_statistics' button that displays a container with
+// the current 'started' and 'playedCompletely' values.
+const config = {
+  'customContextMenu' : true,
+  'contextMenuElements' : ['ad_statistics'],
+  'adStatisticsList' : ['started', 'playedCompletely'],
 }
 ui.configure(config);
 ```
@@ -183,19 +208,6 @@ the timeline:
 const config = {
   'seekBarColors': {
     adBreaks: 'rgb(255, 204, 0)',
-  }
-}
-ui.configure(config);
-```
-
-If you've chosen to display chapters, you can specify the color for the chapter markers on
-the timeline and the text color of the chapter titles that popup on hover:
- ```js
-const config = {
-  displayChapters: true,
-  seekBarColors: {
-    chapterMarks: 'rgb(27, 27, 27)',
-    chapterLabels: 'rgb(255, 255, 255)'
   }
 }
 ui.configure(config);
@@ -286,3 +298,32 @@ PR contributions to [the gallery repo][] are welcome.
 [@lucksy]: https://github.com/lucksy
 [pre-packaged Shaka UI themes]: https://lucksy.github.io/shaka-player-themes/
 [the gallery repo]: https://github.com/lucksy/shaka-player-themes
+
+#### Add custom localization
+
+Load specific locale data at runtime (adjust the URL and language as needed):
+```js
+const locale = 'el';
+const controls = ui.getControls();
+const localization = controls.getLocalization();
+const response = await fetch('ui/locales/' + locale + '.json');     // <----- JSON translation URL here
+const translations = await response.json();
+const translation_map = new Map(Object.entries(translations));
+localization.insert(locale, translation_map);
+```
+
+Lazy-load any requested locale data at runtime (adjust the URL as needed):
+```js
+const controls = ui.getControls();
+const localization = controls.getLocalization();
+
+localization.addEventListener('unknown-locales', async (e) => {
+  for (const locale of e.locales) {
+    const response = await fetch('ui/locales/' + locale + '.json');     // <----- JSON translation URL here
+    const translations = await response.json();
+    const translation_map = new Map(Object.entries(translations));
+    localization.insert(locale, translation_map);
+  }
+});
+```
+

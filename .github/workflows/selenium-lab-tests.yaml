@@ -6,7 +6,10 @@ on:
     # avoid malicious code executing in the lab.
     inputs:
       pr:
-        description: "A PR number to build and test in the lab.  If empty, will build and test from main."
+        description: "A PR number to build and test in the lab.  Overridden by \"sha\" input.  If both are empty, will build and test from main."
+        required: false
+      sha:
+        description: "A specific git SHA to build and test in the lab.  Overrides \"pr\" input.  If both are empty, will build and test from main."
         required: false
       test_filter:
         description: "A regex filter to run a subset of the tests.  If empty, all tests will run."
@@ -19,7 +22,11 @@ on:
     # workflow.
     inputs:
       pr:
-        description: "A PR number to build and test in the lab.  If empty, will build and test from main."
+        description: "A PR number to build and test in the lab.  Overridden by \"sha\" input.  If both are empty, will build and test from main."
+        required: false
+        type: string
+      sha:
+        description: "A specific git SHA to build and test in the lab.  Overrides \"pr\" input.  If both are empty, will build and test from main."
         required: false
         type: string
       test_filter:
@@ -31,9 +38,17 @@ on:
         required: false
         type: string
       ignore_test_status:
-        description: "If true, ignore test success or failure, never set the commit status, and always upload screenshots."
+        description: "If true, ignore test success or failure, and always upload screenshots."
         required: false
         type: boolean
+      skip_commit_status:
+        description: "If true, skip the commit status."
+        required: false
+        type: boolean
+      job_name_prefix:
+        description: "A prefix added to the job name when setting commit status, needed to correctly link to each job.  Use when skip_commit_status is false, and set to the name of the parent job, plus space-slash-space."
+        required: false
+        type: string
   schedule:
     # Runs every night at 2am PST / 10am UTC, testing against the main branch.
     - cron: '0 10 * * *'
@@ -43,37 +58,36 @@ on:
 concurrency: selenium-lab
 
 jobs:
-  compute-ref:
-    name: Compute ref
+  compute-sha:
+    name: Compute SHA
     runs-on: ubuntu-latest
     outputs:
-      REF: ${{ steps.compute.outputs.REF }}
+      SHA: ${{ steps.compute.outputs.SHA }}
 
     steps:
-      - name: Compute ref
+      - name: Compute SHA
         id: compute
-        run: |
-          if [[ "${{ inputs.pr }}" != "" ]]; then
-            LAB_TEST_REF="refs/pull/${{ inputs.pr }}/head"
-          else
-            LAB_TEST_REF="main"
-          fi
-          echo "REF=$LAB_TEST_REF" | tee -a $GITHUB_OUTPUT
+        uses: shaka-project/shaka-github-tools/compute-sha@main
+        with:
+          # If "sha" is given, it overrides PR.  If neither is given, we fall
+          # back to testing "main".
+          sha: ${{ inputs.sha }}
+          ref: ${{ inputs.pr && format('refs/pull/{0}/head', inputs.pr) || 'refs/heads/main' }}
 
   # Configure the build matrix based on our grid's YAML config.
   # The matrix contents will be computed by this first job and deserialized
   # into the second job's config.
   matrix-config:
     name: Matrix config
-    needs: compute-ref
+    needs: compute-sha
     runs-on: ubuntu-latest
     outputs:
       INCLUDE: ${{ steps.configure.outputs.INCLUDE }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.compute-ref.outputs.REF }}
+          sha: ${{ needs.compute-sha.outputs.SHA }}
 
       - name: Install dependencies
         run: npm ci
@@ -106,11 +120,14 @@ jobs:
               continue;
             }
 
-            // A browser is enabled if it's not disabled and (either the browser
-            // filter is empty or it contains the browser name).
-            const enabled = !gridBrowserMetadata[name].disabled &&
-                (browserFilter.size == 0 ||
-                 browserFilter.has(name.toLowerCase()));
+            const thisBrowserRequested = browserFilter.has(name.toLowerCase());
+            const nothingRequested = browserFilter.size == 0;
+            const thisBrowserOnByDefault = !gridBrowserMetadata[name].disabled;
+
+            // A browser is enabled if it's requested, or if it's on by default
+            // and nothing was requested.
+            const enabled = thisBrowserRequested ||
+                (nothingRequested && thisBrowserOnByDefault);
 
             if (enabled) {
               include.push({browser: name});
@@ -130,18 +147,19 @@ jobs:
   # self-hosted Selenium jobs are run in containers on one machine).
   build-shaka:
     name: Pre-build Player
-    needs: compute-ref
+    needs: compute-sha
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.compute-ref.outputs.REF }}
+          ref: ${{ needs.compute-sha.outputs.SHA }}
 
       - name: Set commit status to pending
-        if: ${{ inputs.ignore_test_status == false }}
-        uses: ./.github/workflows/custom-actions/set-commit-status
+        if: ${{ inputs.skip_test_status == false }}
+        uses: shaka-project/shaka-github-tools/set-commit-status@main
         with:
           context: Selenium / Build
+          job_name: "${{ inputs.job_name_prefix }}Pre-build Player"
           state: pending
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -159,21 +177,21 @@ jobs:
               --filter ThisFilterMatchesNoTests || true
 
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: npm-cache
         with:
           path: node_modules/
           key: node-${{ hashFiles('package-lock.json') }}
 
       - name: Cache Babel output
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: babel-cache
         with:
           path: .babel-cache
           key: babel-${{ hashFiles('*.js', 'demo/**.js', 'lib/**.js', 'ui/**.js', 'test/**.js', 'third_party/**.js') }}
 
       - name: Store Player build
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: shaka-player
           path: dist/
@@ -182,10 +200,11 @@ jobs:
       - name: Report final commit status
         # Will run on success or failure, but not if the workflow is cancelled
         # or if we were asked to ignore the test status.
-        if: ${{ (success() || failure()) && inputs.ignore_test_status == false }}
-        uses: ./.github/workflows/custom-actions/set-commit-status
+        if: ${{ (success() || failure()) && inputs.skip_commit_status == false }}
+        uses: shaka-project/shaka-github-tools/set-commit-status@main
         with:
           context: Selenium / Build
+          job_name: "${{ inputs.job_name_prefix }}Pre-build Player"
           state: ${{ job.status }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -193,7 +212,7 @@ jobs:
     # This is a self-hosted runner in a Docker container, with access to our
     # lab's Selenium grid on port 4444.
     runs-on: self-hosted-selenium
-    needs: [compute-ref, build-shaka, matrix-config]
+    needs: [compute-sha, build-shaka, matrix-config]
     strategy:
       fail-fast: false
       matrix:
@@ -201,31 +220,32 @@ jobs:
     name: ${{ matrix.browser }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.compute-ref.outputs.REF }}
+          ref: ${{ needs.compute-sha.outputs.SHA }}
 
       - name: Set commit status to pending
-        if: ${{ inputs.ignore_test_status == false }}
-        uses: ./.github/workflows/custom-actions/set-commit-status
+        if: ${{ inputs.skip_commit_status == false }}
+        uses: shaka-project/shaka-github-tools/set-commit-status@main
         with:
           context: Selenium / ${{ matrix.browser }}
+          job_name: "${{ inputs.job_name_prefix }}${{ matrix.browser }}"
           state: pending
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: 16
           registry-url: 'https://registry.npmjs.org'
 
       # The Docker image for this self-hosted runner doesn't contain java.
-      - uses: actions/setup-java@v3
+      - uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: 11
 
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: npm-cache
         with:
           path: node_modules/
@@ -234,7 +254,7 @@ jobs:
           enableCrossOsArchive: true  # Share archives from Linux to Windows
 
       - name: Cache Babel output
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: babel-cache
         with:
           path: .babel-cache
@@ -249,7 +269,7 @@ jobs:
       # Instead of building Shaka N times, build it once and fetch the build to
       # each Selenium runner in the matrix.
       - name: Fetch Player build
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: shaka-player
           path: dist/
@@ -260,6 +280,7 @@ jobs:
       # ALLOCATED_PORT must be defined by the self-hosted runner, and mapped
       # from the host to the container.
       - name: Test Player
+        timeout-minutes: 25
         run: |
           # Use of an array keeps elements intact, and allows an element to
           # contain spaces without being expanded into multiple arguments in a
@@ -331,7 +352,7 @@ jobs:
           fi
 
       - name: Upload coverage report (Edge only)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         # If there's a coverage report, upload it, even if a previous step
         # failed.
         if: ${{ always() && steps.coverage.outputs.coverage_report }}
@@ -347,7 +368,7 @@ jobs:
 
       # Upload new screenshots and diffs on failure; ignore if missing
       - name: Upload screenshots
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ failure() || inputs.ignore_test_status }}
         with:
           # In this workflow, "browser" is the selenium node name, which can
@@ -362,9 +383,10 @@ jobs:
       - name: Report final commit status
         # Will run on success or failure, but not if the workflow is cancelled
         # or if we were asked to ignore the test status.
-        if: ${{ (success() || failure()) && inputs.ignore_test_status == false }}
-        uses: ./.github/workflows/custom-actions/set-commit-status
+        if: ${{ (success() || failure()) && inputs.skip_commit_status == false }}
+        uses: shaka-project/shaka-github-tools/set-commit-status@main
         with:
           context: Selenium / ${{ matrix.browser }}
+          job_name: "${{ inputs.job_name_prefix }}${{ matrix.browser }}"
           state: ${{ job.status }}
           token: ${{ secrets.GITHUB_TOKEN }}

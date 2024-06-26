@@ -21,7 +21,11 @@
  *   sequenceMode: boolean,
  *   ignoreManifestTimestampsInSegmentsMode: boolean,
  *   type: string,
- *   serviceDescription: ?shaka.extern.ServiceDescription
+ *   serviceDescription: ?shaka.extern.ServiceDescription,
+ *   nextUrl: ?string,
+ *   periodCount: number,
+ *   gapCount: number,
+ *   isLowLatency: boolean
  * }}
  *
  * @description
@@ -93,6 +97,20 @@
  * @property {?shaka.extern.ServiceDescription} serviceDescription
  *   The service description for the manifest. Used to adapt playbackRate to
  *   decrease latency.
+ * @property {?string} nextUrl
+ *   The next url to play.
+ * @property {number} periodCount
+ *   Number of periods found in a manifest. For DASH, it represents number of
+ *   Period elements in a manifest. If streaming protocol does not implement
+ *   period-like structure, it should be set to 1.
+ *   <i>Defaults to <code>1</code>.</i>
+ * @property {number} gapCount
+ *   The amount of gaps found in a manifest. For DASH, it represents number of
+ *   discontinuities found between periods. For HLS, it is a number of EXT-X-GAP
+ *   and GAP=YES occurrences. For MSS, it is always set to 0.
+ *   If in src= mode or nothing is loaded, NaN.
+ * @property {bolean} isLowLatency
+ *   If true, the manifest is Low Latency.
  *
  * @exportDoc
  */
@@ -151,6 +169,7 @@ shaka.extern.InitDataOverride;
 
 /**
  * @typedef {{
+ *   targetLatency:?number,
  *   maxLatency: ?number,
  *   maxPlaybackRate: ?number,
  *   minLatency: ?number,
@@ -164,6 +183,8 @@ shaka.extern.InitDataOverride;
  * minPlaybackRate to increase  latency.
  * More information {@link https://dashif.org/docs/CR-Low-Latency-Live-r8.pdf here}.
  *
+ * @property {?number} targetLatency
+ *  The target latency to aim for.
  * @property {?number} maxLatency
  *  Maximum latency in seconds.
  * @property {?number} maxPlaybackRate
@@ -181,6 +202,8 @@ shaka.extern.ServiceDescription;
 /**
  * @typedef {{
  *   keySystem: string,
+ *   encryptionScheme: string,
+ *   keySystemUris: (Set.<string>|undefined),
  *   licenseServerUri: string,
  *   distinctiveIdentifierRequired: boolean,
  *   persistentStateRequired: boolean,
@@ -199,6 +222,12 @@ shaka.extern.ServiceDescription;
  * @property {string} keySystem
  *   <i>Required.</i> <br>
  *   The key system, e.g., "com.widevine.alpha".
+ * @property {string} encryptionScheme
+ *   <i>Required.</i> <br>
+ *   The encryption scheme, e.g., "cenc", "cbcs", "cbcs-1-9".
+ * @property {(Set.<string>|undefined)} keySystemUris
+ *   <i>Optional.</i> <br>
+ *   The key system uri, e.g., "skd://" for fairplay.
  * @property {string} licenseServerUri
  *   <i>Filled in by DRM config if missing.</i> <br>
  *   The license server URI.
@@ -363,6 +392,51 @@ shaka.extern.FetchCryptoKeysFunction;
 
 
 /**
+ * SegmentIndex minimal API.
+ * @interface
+ * @exportDoc
+ */
+shaka.extern.SegmentIndex = class {
+  /**
+   * Get number of references.
+   * @return {number}
+   * @exportDoc
+   */
+  getNumReferences() {}
+
+  /**
+   * Finds the position of the segment for the given time, in seconds, relative
+   * to the start of the presentation.  Returns the position of the segment
+   * with the largest end time if more than one segment is known for the given
+   * time.
+   *
+   * @param {number} time
+   * @return {?number} The position of the segment, or null if the position of
+   *   the segment could not be determined.
+   * @exportDoc
+   */
+  find(time) {}
+
+  /**
+   * Gets the SegmentReference for the segment at the given position.
+   *
+   * @param {number} position The position of the segment as returned by find().
+   * @return {shaka.media.SegmentReference} The SegmentReference, or null if
+   *   no such SegmentReference exists.
+   * @exportDoc
+   */
+  get(position) {}
+
+  /**
+   * Gets number of already evicted segments.
+   * @return {number}
+   * @exportDoc
+   */
+  getNumEvicted() {}
+};
+
+
+/**
  * @typedef {{
  *   id: number,
  *   originalId: ?string,
@@ -375,6 +449,7 @@ shaka.extern.FetchCryptoKeysFunction;
  *   frameRate: (number|undefined),
  *   pixelAspectRatio: (string|undefined),
  *   hdr: (string|undefined),
+ *   colorGamut: (string|undefined),
  *   videoLayout: (string|undefined),
  *   bandwidth: (number|undefined),
  *   width: (number|undefined),
@@ -403,7 +478,8 @@ shaka.extern.FetchCryptoKeysFunction;
  *      undefined),
  *   mssPrivateData: (shaka.extern.MssPrivateData|undefined),
  *   external: boolean,
- *   fastSwitching: boolean
+ *   fastSwitching: boolean,
+ *   fullMimeTypes: !Set.<string>
  * }}
  *
  * @description
@@ -433,10 +509,14 @@ shaka.extern.FetchCryptoKeysFunction;
  * @property {string} mimeType
  *   <i>Required.</i> <br>
  *   The Stream's MIME type, e.g., 'audio/mp4', 'video/webm', or 'text/vtt'.
+ *   In the case of a stream that adapts between different periods with
+ *   different MIME types, this represents only the first period.
  * @property {string} codecs
  *   <i>Defaults to '' (i.e., unknown / not needed).</i> <br>
  *   The Stream's codecs, e.g., 'avc1.4d4015' or 'vp9', which must be
  *   compatible with the Stream's MIME type. <br>
+ *   In the case of a stream that adapts between different periods with
+ *   different codecs, this represents only the first period.
  *   See {@link https://tools.ietf.org/html/rfc6381}
  * @property {(number|undefined)} frameRate
  *   <i>Video streams only.</i> <br>
@@ -447,6 +527,9 @@ shaka.extern.FetchCryptoKeysFunction;
  * @property {(string|undefined)} hdr
  *   <i>Video streams only.</i> <br>
  *   The Stream's HDR info
+ * @property {(string|undefined)} colorGamut
+ *   <i>Video streams only.</i> <br>
+ *   The Stream's color gamut info
  * @property {(string|undefined)} videoLayout
  *   <i>Video streams only.</i> <br>
  *   The Stream's video layout info.
@@ -538,6 +621,11 @@ shaka.extern.FetchCryptoKeysFunction;
  *   Eg: external text tracks.
  * @property {boolean} fastSwitching
  *   Indicate if the stream should be used for fast switching.
+ * @property {!Set.<string>} fullMimeTypes
+ *   A set of full MIME types (e.g. MIME types plus codecs information), that
+ *   represents the types used in each period of the original manifest.
+ *   Meant for being used by compatibility checking, such as with
+ *   MediaSource.isTypeSupported.
  *
  * @exportDoc
  */
